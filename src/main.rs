@@ -52,29 +52,36 @@ fn tokenize(line: &str) -> Vec<Token> {
 	fn determine_token_kind(ch: char) -> TokenChars {
 		if ch == '"' {
 			TokenChars::String(vec![]) // Start with empty vector, don't include opening quote
-		} else if ch == '/' {
-			TokenChars::Comment(vec![ch]) // Start comment with '/'
 		} else if ch.is_alphabetic() || ch == '_' {
 			TokenChars::Symbol(vec![ch])
 		} else if ch.is_numeric() {
 			TokenChars::Number(vec![ch])
 		} else if ch.is_whitespace() {
 			TokenChars::Whitespace(vec![ch])
-		} else if is_operator_char(ch) {
-			TokenChars::Operator(vec![ch])
 		} else {
-			todo!("Unknown token kind char: {}", ch)
+			TokenChars::Operator(vec![ch])
 		}
 	}
 
-	fn is_operator_char(ch: char) -> bool {
-		matches!(
-			ch,
-			'+' | '-' | '*' | '/' | '=' | '<' | '>' | '!' | '&' | '|' | '^' | '%' | '~'
-		)
-	}
-
 	for ch in line.chars() {
+		println!("{}", ch);
+
+		if ch == '\r' {
+			continue;
+		} else if ch == '\n' {
+			// Finish the current token
+			token_chars_collection.push(std::mem::replace(&mut current_token_chars, None).unwrap());
+			continue;
+		}
+
+		// Check if we need to convert an operator to a comment
+		if let Some(TokenChars::Operator(chars)) = &mut current_token_chars {
+			if chars.len() == 1 && chars[0] == '/' && (ch == '/' || ch == '*') {
+				current_token_chars = Some(TokenChars::Comment(vec![chars[0], ch]));
+				continue;
+			}
+		}
+
 		match current_token_chars {
 			None => {
 				current_token_chars = Some(determine_token_kind(ch));
@@ -133,7 +140,7 @@ fn tokenize(line: &str) -> Vec<Token> {
 						}
 					}
 					TokenChars::Operator(chars) => {
-						if !is_operator_char(ch) {
+						if ch == '\n' || ch == '"' || ch.is_whitespace() || ch.is_alphanumeric() {
 							// End of operator token
 							token_chars_collection.push(
 								std::mem::replace(
@@ -147,54 +154,24 @@ fn tokenize(line: &str) -> Vec<Token> {
 						}
 					}
 					TokenChars::Comment(chars) => {
-						// Handle C++ style comments
-						if chars.len() == 1 && chars[0] == '/' {
-							// First '/' encountered, check for second '/' or '*'
-							if ch == '/' || ch == '*' {
-								chars.push(ch);
-							} else {
-								// Not a comment, treat the '/' as an operator and start new token
-								let slash_token = TokenChars::Operator(vec!['/']);
-								token_chars_collection.push(slash_token);
-								current_token_chars = Some(determine_token_kind(ch));
+						chars.push(ch);
+
+						let l = chars.len();
+						let mut end_of_comment = false;
+						if chars[0] == '/' && chars[1] == '*' {
+							if chars[l - 1] == '*' && chars[l - 2] == '/' {
+								end_of_comment = true;
 							}
-						} else if chars.len() == 2 {
-							if chars[0] == '/' && chars[1] == '/' {
-								// Single-line comment: continue until newline
-								if ch == '\n' {
-									// End of single-line comment
-									token_chars_collection.push(
-										std::mem::replace(&mut current_token_chars, None).unwrap(),
-									);
-								} else {
-									chars.push(ch);
-								}
-							} else if chars[0] == '/' && chars[1] == '*' {
-								// Multi-line comment: continue until */
-								chars.push(ch);
-								if chars.len() >= 3
-									&& chars[chars.len() - 2] == '*'
-									&& chars[chars.len() - 1] == '/'
-								{
-									// End of multi-line comment
-									token_chars_collection.push(
-										std::mem::replace(&mut current_token_chars, None).unwrap(),
-									);
-								}
+						} else if chars[0] == '/' && chars[1] == '/' {
+							if chars[l - 1] == '\n' {
+								end_of_comment = true;
 							}
-						} else {
-							// Continue building comment
-							chars.push(ch);
-							// Check for end of multi-line comment
-							if chars.len() >= 3
-								&& chars[chars.len() - 2] == '*'
-								&& chars[chars.len() - 1] == '/'
-							{
-								// End of multi-line comment
-								token_chars_collection.push(
-									std::mem::replace(&mut current_token_chars, None).unwrap(),
-								);
-							}
+						}
+
+						if end_of_comment {
+							// End of comment token
+							token_chars_collection
+								.push(std::mem::replace(&mut current_token_chars, None).unwrap());
 						}
 					}
 				}
@@ -205,6 +182,12 @@ fn tokenize(line: &str) -> Vec<Token> {
 	if let Some(token_chars) = current_token_chars {
 		token_chars_collection.push(token_chars);
 	}
+
+	// Remove Whitespace tokens from token_chars_collection
+	token_chars_collection.retain(|token| match token {
+		TokenChars::Whitespace(_) => false,
+		_ => true,
+	});
 
 	println!("{:?}", token_chars_collection);
 
@@ -220,7 +203,7 @@ fn run(line: &str) {
 fn main() {
 	println!("");
 	println!("");
-	run("2 + 4 / 5 - 3 + \"hello\" /* yea */");
+	run("2 + 4 /! 5 - 3 + \"hello\" /* yea */");
 
 	// let _ = repl();
 }
