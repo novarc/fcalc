@@ -1,4 +1,5 @@
 use rustyline;
+use std::fmt;
 use std::iter::Peekable;
 use std::vec::IntoIter;
 
@@ -16,6 +17,11 @@ pub struct LangBlock {
 pub enum LangBlockItem {
 	Line(LangLine),
 	Block(LangBlock),
+}
+
+pub struct DisplayBlock<'a> {
+	block: &'a LangBlock,
+	indent_level: usize,
 }
 
 fn parse_block(tokens: &mut Peekable<IntoIter<lex::Token>>) -> LangBlock {
@@ -76,18 +82,40 @@ fn parse_block(tokens: &mut Peekable<IntoIter<lex::Token>>) -> LangBlock {
 	LangBlock { items: block_items }
 }
 
-fn print_block(block: &LangBlock, indent_level: usize) {
-	let indent = "  ".repeat(indent_level);
-	for (i, item) in block.items.iter().enumerate() {
-		match item {
-			LangBlockItem::Line(line) => {
-				println!("{}Line {}: {:?}", indent, i + 1, line.tokens);
-			}
-			LangBlockItem::Block(nested_block) => {
-				println!("{}Block {}:", indent, i + 1);
-				print_block(nested_block, indent_level + 1);
+impl<'a> DisplayBlock<'a> {
+	pub fn new(block: &'a LangBlock, indent_level: usize) -> Self {
+		DisplayBlock {
+			block,
+			indent_level,
+		}
+	}
+}
+
+impl<'a> fmt::Display for DisplayBlock<'a> {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		let indent = "  ".repeat(self.indent_level);
+		for (i, item) in self.block.items.iter().enumerate() {
+			match item {
+				LangBlockItem::Line(line) => {
+					writeln!(f, "{}Line {}: {:?}", indent, i + 1, line.tokens)?;
+				}
+				LangBlockItem::Block(nested_block) => {
+					writeln!(f, "{}Block {}:", indent, i + 1)?;
+					write!(
+						f,
+						"{}",
+						DisplayBlock::new(nested_block, self.indent_level + 1)
+					)?;
+				}
 			}
 		}
+		Ok(())
+	}
+}
+
+impl fmt::Display for LangBlock {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "{}", DisplayBlock::new(self, 0))
 	}
 }
 
@@ -100,7 +128,7 @@ fn run(line: &str) {
 	let block = parse_block(&mut token_iter);
 
 	println!("Parsed block:");
-	print_block(&block, 0);
+	print!("{}", block);
 }
 
 fn main() {
