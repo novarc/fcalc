@@ -1,35 +1,35 @@
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LangInteger {
 	pub value: i64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LangRealNumber {
 	pub value: f64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum LangNumber {
 	Integer(LangInteger),
 	RealNumber(LangRealNumber),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LangSymbol {
 	pub value: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LangString {
 	pub value: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LangOperator {
 	pub value: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Token {
 	Number(LangNumber),
 	Symbol(LangSymbol),
