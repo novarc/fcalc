@@ -3,7 +3,17 @@ use rustyline;
 mod lex;
 mod parse;
 use lex::lex;
-use parse::parse_block;
+use parse::{LangBlock, parse_block};
+
+fn eval_line(line: &LangLine) {
+	println!("Evaluating line:");
+	print!("{}", line);
+}
+
+fn eval_block(block: &LangBlock) {
+	println!("Evaluating block:");
+	print!("{}", block);
+}
 
 fn run(line: &str) {
 	println!("Tokenizing: {}", line);
