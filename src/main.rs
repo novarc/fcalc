@@ -80,14 +80,109 @@ fn inkwell_example() -> Result<(), Box<dyn Error>> {
 	Ok(())
 }
 
+fn execute_postfix_tokens(tokens: &[Token]) -> Result<(), Box<dyn Error>> {
+	let context = Context::create();
+	let module = context.create_module("postfix_eval");
+	let execution_engine = module.create_jit_execution_engine(OptimizationLevel::None)?;
+	let builder = context.create_builder();
+
+	// Create function type: () -> i64
+	let i64_type = context.i64_type();
+	let fn_type = i64_type.fn_type(&[], false);
+
+	// Create function
+	let function = module.add_function("eval_postfix", fn_type, None);
+	let basic_block = context.append_basic_block(function, "entry");
+	builder.position_at_end(basic_block);
+
+	// Stack to hold values during evaluation
+	let mut value_stack: Vec<inkwell::values::IntValue> = Vec::new();
+
+	for token in tokens {
+		match token {
+			Token::Number(lex::LangNumber::Integer(int_val)) => {
+				// Push integer constant onto stack
+				let const_val = i64_type.const_int(int_val.value as u64, false);
+				value_stack.push(const_val);
+			}
+			Token::Number(lex::LangNumber::RealNumber(_)) => {
+				println!("Warning: Real numbers not supported yet, skipping");
+			}
+			Token::Operator(op) => match op.value.as_str() {
+				"+" => {
+					if value_stack.len() >= 2 {
+						let b = value_stack.pop().unwrap();
+						let a = value_stack.pop().unwrap();
+						let result = builder.build_int_add(a, b, "add").unwrap();
+						value_stack.push(result);
+					}
+				}
+				"-" => {
+					if value_stack.len() >= 2 {
+						let b = value_stack.pop().unwrap();
+						let a = value_stack.pop().unwrap();
+						let result = builder.build_int_sub(a, b, "sub").unwrap();
+						value_stack.push(result);
+					}
+				}
+				"*" => {
+					if value_stack.len() >= 2 {
+						let b = value_stack.pop().unwrap();
+						let a = value_stack.pop().unwrap();
+						let result = builder.build_int_mul(a, b, "mul").unwrap();
+						value_stack.push(result);
+					}
+				}
+				"/" => {
+					if value_stack.len() >= 2 {
+						let b = value_stack.pop().unwrap();
+						let a = value_stack.pop().unwrap();
+						let result = builder.build_int_signed_div(a, b, "div").unwrap();
+						value_stack.push(result);
+					}
+				}
+				_ => {
+					println!("Warning: Operator '{}' not supported yet", op.value);
+				}
+			},
+			Token::Symbol(_) | Token::String(_) => {
+				println!("Warning: Symbols and strings not supported in arithmetic evaluation");
+			}
+		}
+	}
+
+	// Return the final result (top of stack) or 0 if stack is empty
+	let result = if let Some(final_value) = value_stack.pop() {
+		final_value
+	} else {
+		i64_type.const_int(0, false)
+	};
+
+	builder.build_return(Some(&result)).unwrap();
+
+	// JIT compile and call
+	type EvalFunc = unsafe extern "C" fn() -> i64;
+	let eval_fn: JitFunction<'_, EvalFunc> =
+		unsafe { execution_engine.get_function("eval_postfix").unwrap() };
+
+	unsafe {
+		let result = eval_fn.call();
+		println!("Evaluation result: {}", result);
+	}
+
+	Ok(())
+}
+
 fn eval_line(line: &LangLine) {
-	println!("Evaluating line:");
+	// println!("Evaluating line:");
 
 	// Convert infix to postfix using Shunting Yard algorithm
 	let postfix_tokens = infix_to_postfix(&line.tokens);
 
-	println!("Original tokens: {:?}", line.tokens);
-	println!("Postfix tokens: {:?}", postfix_tokens);
+	// println!("Original tokens: {:?}", line.tokens);
+	// println!("Postfix tokens: {:?}", postfix_tokens);
+
+	let _ = execute_postfix_tokens(&postfix_tokens);
 }
 
 fn infix_to_postfix(tokens: &[Token]) -> Vec<Token> {
@@ -176,7 +271,7 @@ fn get_precedence(op: &str) -> i32 {
 }
 
 fn eval_block(block: &LangBlock) {
-	println!("Evaluating block:");
+	// println!("Evaluating block:");
 
 	for item in &block.items {
 		match item {
@@ -191,24 +286,22 @@ fn eval_block(block: &LangBlock) {
 }
 
 fn run(line: &str) {
-	println!("Tokenizing: {}", line);
+	// println!("Tokenizing: {}", line);
 	let tokens = lex(line);
 
 	// Parse tokens into a LangBlock with support for nested blocks
 	let mut token_iter = tokens.into_iter().peekable();
 	let block = parse_block(&mut token_iter);
 
-	println!("Parsed block:");
-	print!("{}", block);
+	// println!("Parsed block:");
+	// print!("{}", block);
 
 	eval_block(&block);
 }
 
 fn main() {
-	println!("\n=== Testing Infix to Postfix Conversion ===");
-
-	println!("\n--- Simple arithmetic ---");
-	run("2 + 3 * 4");
+	// println!("\n--- Simple arithmetic ---");
+	// run("2 + 3 * 4");
 
 	// println!("\n--- Assignment with arithmetic ---");
 	// run("x = a + b * c");
@@ -222,9 +315,9 @@ fn main() {
 	// println!("\n--- Testing with blocks ---");
 	// run("if x > 0 { \n  y = x + 1; \n  z = y * 2 \n} else { \n  y = 0 \n}");
 
-	// let _ = repl();
+	// let _ = inkwell_example();
 
-	let _ = inkwell_example();
+	let _ = repl();
 }
 
 #[allow(dead_code)]
