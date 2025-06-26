@@ -1,11 +1,11 @@
 #[derive(Debug)]
 pub struct LangInteger {
-	value: i64,
+	pub value: i64,
 }
 
 #[derive(Debug)]
 pub struct LangRealNumber {
-	value: f64,
+	pub value: f64,
 }
 
 #[derive(Debug)]
@@ -16,17 +16,17 @@ pub enum LangNumber {
 
 #[derive(Debug)]
 pub struct LangSymbol {
-	value: String,
+	pub value: String,
 }
 
 #[derive(Debug)]
 pub struct LangString {
-	value: String,
+	pub value: String,
 }
 
 #[derive(Debug)]
 pub struct LangOperator {
-	value: String,
+	pub value: String,
 }
 
 #[derive(Debug)]
@@ -73,6 +73,7 @@ pub fn lex(line: &str) -> Vec<Token> {
 		} else if ch == '\n' {
 			// Finish the current token
 			token_chars_collection.push(std::mem::replace(&mut current_token_chars, None).unwrap());
+			token_chars_collection.push(TokenChars::Operator(vec!['\n']));
 			continue;
 		}
 
