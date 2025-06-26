@@ -87,8 +87,8 @@ fn execute_postfix_tokens(tokens: &[Token]) -> Result<(), Box<dyn Error>> {
 	let builder = context.create_builder();
 
 	// Create function type: () -> i64
-	let i64_type = context.i64_type();
-	let fn_type = i64_type.fn_type(&[], false);
+	let f64_type = context.f64_type();
+	let fn_type = f64_type.fn_type(&[], false);
 
 	// Create function
 	let function = module.add_function("eval_postfix", fn_type, None);
@@ -96,24 +96,25 @@ fn execute_postfix_tokens(tokens: &[Token]) -> Result<(), Box<dyn Error>> {
 	builder.position_at_end(basic_block);
 
 	// Stack to hold values during evaluation
-	let mut value_stack: Vec<inkwell::values::IntValue> = Vec::new();
+	let mut value_stack: Vec<inkwell::values::FloatValue> = Vec::new();
 
 	for token in tokens {
 		match token {
 			Token::Number(lex::LangNumber::Integer(int_val)) => {
 				// Push integer constant onto stack
-				let const_val = i64_type.const_int(int_val.value as u64, false);
+				let const_val = f64_type.const_float(int_val.value as f64);
 				value_stack.push(const_val);
 			}
-			Token::Number(lex::LangNumber::RealNumber(_)) => {
-				println!("Warning: Real numbers not supported yet, skipping");
+			Token::Number(lex::LangNumber::RealNumber(real_val)) => {
+				let const_val = f64_type.const_float(real_val.value as f64);
+				value_stack.push(const_val);
 			}
 			Token::Operator(op) => match op.value.as_str() {
 				"+" => {
 					if value_stack.len() >= 2 {
 						let b = value_stack.pop().unwrap();
 						let a = value_stack.pop().unwrap();
-						let result = builder.build_int_add(a, b, "add").unwrap();
+						let result = builder.build_float_add(a, b, "add").unwrap();
 						value_stack.push(result);
 					}
 				}
@@ -121,7 +122,7 @@ fn execute_postfix_tokens(tokens: &[Token]) -> Result<(), Box<dyn Error>> {
 					if value_stack.len() >= 2 {
 						let b = value_stack.pop().unwrap();
 						let a = value_stack.pop().unwrap();
-						let result = builder.build_int_sub(a, b, "sub").unwrap();
+						let result = builder.build_float_sub(a, b, "sub").unwrap();
 						value_stack.push(result);
 					}
 				}
@@ -129,7 +130,7 @@ fn execute_postfix_tokens(tokens: &[Token]) -> Result<(), Box<dyn Error>> {
 					if value_stack.len() >= 2 {
 						let b = value_stack.pop().unwrap();
 						let a = value_stack.pop().unwrap();
-						let result = builder.build_int_mul(a, b, "mul").unwrap();
+						let result = builder.build_float_mul(a, b, "mul").unwrap();
 						value_stack.push(result);
 					}
 				}
@@ -137,7 +138,7 @@ fn execute_postfix_tokens(tokens: &[Token]) -> Result<(), Box<dyn Error>> {
 					if value_stack.len() >= 2 {
 						let b = value_stack.pop().unwrap();
 						let a = value_stack.pop().unwrap();
-						let result = builder.build_int_signed_div(a, b, "div").unwrap();
+						let result = builder.build_float_div(a, b, "div").unwrap();
 						value_stack.push(result);
 					}
 				}
@@ -155,13 +156,13 @@ fn execute_postfix_tokens(tokens: &[Token]) -> Result<(), Box<dyn Error>> {
 	let result = if let Some(final_value) = value_stack.pop() {
 		final_value
 	} else {
-		i64_type.const_int(0, false)
+		f64_type.const_float(0.0)
 	};
 
 	builder.build_return(Some(&result)).unwrap();
 
 	// JIT compile and call
-	type EvalFunc = unsafe extern "C" fn() -> i64;
+	type EvalFunc = unsafe extern "C" fn() -> f64;
 	let eval_fn: JitFunction<'_, EvalFunc> =
 		unsafe { execution_engine.get_function("eval_postfix").unwrap() };
 
