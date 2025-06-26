@@ -1,3 +1,5 @@
+#![allow(warnings)]
+
 #[derive(Debug, Clone)]
 pub struct LangInteger {
 	pub value: i64,
