@@ -83,7 +83,7 @@ fn inkwell_example() -> Result<(), Box<dyn Error>> {
 fn execute_postfix_tokens(tokens: &[Token]) -> Result<(), Box<dyn Error>> {
 	let context = Context::create();
 	let module = context.create_module("postfix_eval");
-	let execution_engine = module.create_jit_execution_engine(OptimizationLevel::None)?;
+	let execution_engine = module.create_jit_execution_engine(OptimizationLevel::Aggressive)?;
 	let builder = context.create_builder();
 
 	// Create function type: () -> i64
