@@ -87,7 +87,7 @@ fn inkwell_example() -> Result<(), Box<dyn Error>> {
 	Ok(())
 }
 
-fn execute_postfix_tokens(tokens: &[Token]) -> Result<(), Box<dyn Error>> {
+fn execute_postfix_tokens(tokens: &[Token]) -> Result<Option<f64>, Box<dyn Error>> {
 	// For assignment operations, we need to handle them at runtime rather than compile time
 	// So we'll evaluate the postfix expression directly without LLVM for now
 	let mut value_stack: Vec<f64> = Vec::new();
@@ -130,15 +130,14 @@ fn execute_postfix_tokens(tokens: &[Token]) -> Result<(), Box<dyn Error>> {
 							// Assign value to variable
 							let mut variables = VARIABLES.lock().unwrap();
 							variables.insert(var_name.clone(), value);
-							// println!("{} = {}", var_name, value);
 							// Push the assigned value back for potential chaining
 							value_stack.push(value);
 							variable_stack.push(String::new()); // Push placeholder for result
 						} else {
-							println!("Error: Assignment requires a variable name");
+							return Err("Assignment requires a variable name".into());
 						}
 					} else {
-						println!("Error: Assignment requires two operands");
+						return Err("Assignment requires two operands".into());
 					}
 				}
 				"+" => {
@@ -191,8 +190,7 @@ fn execute_postfix_tokens(tokens: &[Token]) -> Result<(), Box<dyn Error>> {
 							let result = a / b;
 							value_stack.push(result);
 						} else {
-							println!("Error: Division by zero");
-							value_stack.push(f64::NAN);
+							return Err("Division by zero".into());
 						}
 						// Clean up variable_stack for the two operands consumed and push placeholder for result
 						if variable_stack.len() >= 2 {
@@ -212,20 +210,23 @@ fn execute_postfix_tokens(tokens: &[Token]) -> Result<(), Box<dyn Error>> {
 		}
 	}
 
-	// Show the final result if it's not an assignment
+	// Return the final result if it's not an assignment
 	if let Some(result) = value_stack.last() {
 		if !tokens
 			.iter()
 			.any(|t| matches!(t, Token::Operator(op) if op.value == "="))
 		{
 			println!("{}", result);
+			Ok(Some(*result))
+		} else {
+			Ok(Some(*result))
 		}
+	} else {
+		Ok(None)
 	}
-
-	Ok(())
 }
 
-fn eval_line(line: &LangLine) {
+fn eval_line(line: &LangLine) -> Option<f64> {
 	// println!("Evaluating line:");
 
 	// Convert infix to postfix using Shunting Yard algorithm
@@ -234,7 +235,13 @@ fn eval_line(line: &LangLine) {
 	// println!("Original tokens: {:?}", line.tokens);
 	// println!("Postfix tokens: {:?}", postfix_tokens);
 
-	let _ = execute_postfix_tokens(&postfix_tokens);
+	match execute_postfix_tokens(&postfix_tokens) {
+		Ok(result) => result,
+		Err(e) => {
+			println!("Error: {}", e);
+			None
+		}
+	}
 }
 
 fn infix_to_postfix(tokens: &[Token]) -> Vec<Token> {
@@ -322,22 +329,28 @@ fn get_precedence(op: &str) -> i32 {
 	}
 }
 
-fn eval_block(block: &LangBlock) {
+fn eval_block(block: &LangBlock) -> Option<f64> {
 	// println!("Evaluating block:");
+
+	let mut last_result = None;
 
 	for item in &block.items {
 		match item {
 			parse::LangBlockItem::Line(line) => {
-				eval_line(line);
+				let result = eval_line(line);
+				last_result = result;
 			}
 			parse::LangBlockItem::Block(nested_block) => {
-				eval_block(nested_block);
+				let result = eval_block(nested_block);
+				last_result = result;
 			}
 		}
 	}
+
+	last_result
 }
 
-fn run(line: &str) {
+fn run(line: &str) -> Option<f64> {
 	// println!("Tokenizing: {}", line);
 	let tokens = lex(line);
 
@@ -347,7 +360,7 @@ fn run(line: &str) {
 
 	// println!("Parsed block:\n{}", block);
 
-	eval_block(&block);
+	eval_block(&block)
 }
 
 fn main() {
@@ -384,7 +397,7 @@ fn repl() -> rustyline::Result<()> {
 		match readline {
 			Ok(line) => {
 				let _ = rl.add_history_entry(line.as_str());
-				run(line.as_str());
+				let _result = run(line.as_str());
 			}
 			Err(_) => {
 				break;
@@ -393,4 +406,251 @@ fn repl() -> rustyline::Result<()> {
 	}
 	let _ = rl.save_history("repl_history.txt");
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use std::sync::Mutex;
+
+	// Use a test mutex to ensure tests run serially to avoid global state conflicts
+	static TEST_MUTEX: Mutex<()> = Mutex::new(());
+
+	// Helper function to clear variables before each test
+	fn clear_variables() {
+		let mut variables = VARIABLES.lock().unwrap();
+		variables.clear();
+	}
+
+	// Helper function to get a variable value
+	fn get_variable(name: &str) -> Option<f64> {
+		let variables = VARIABLES.lock().unwrap();
+		variables.get(name).copied()
+	}
+
+	// Helper function to set a variable value
+	fn set_variable(name: &str, value: f64) {
+		let mut variables = VARIABLES.lock().unwrap();
+		variables.insert(name.to_string(), value);
+	}
+
+	#[test]
+	fn test_simple_arithmetic() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		clear_variables();
+
+		assert_eq!(run("2 + 3"), Some(5.0));
+		assert_eq!(run("10 - 4"), Some(6.0));
+		assert_eq!(run("3 * 4"), Some(12.0));
+		assert_eq!(run("15 / 3"), Some(5.0));
+	}
+
+	#[test]
+	fn test_operator_precedence() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		clear_variables();
+
+		assert_eq!(run("2 + 3 * 4"), Some(14.0)); // Should be 2 + (3 * 4) = 14
+		assert_eq!(run("10 - 6 / 2"), Some(7.0)); // Should be 10 - (6 / 2) = 7
+		assert_eq!(run("2 * 3 + 4"), Some(10.0)); // Should be (2 * 3) + 4 = 10
+		assert_eq!(run("20 / 4 - 2"), Some(3.0)); // Should be (20 / 4) - 2 = 3
+	}
+
+	#[test]
+	fn test_parentheses() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		clear_variables();
+
+		assert_eq!(run("(2 + 3) * 4"), Some(20.0));
+		assert_eq!(run("2 * (3 + 4)"), Some(14.0));
+		assert_eq!(run("(10 - 6) / 2"), Some(2.0));
+		assert_eq!(run("20 / (4 - 2)"), Some(10.0));
+	}
+
+	#[test]
+	fn test_variable_assignment() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		clear_variables();
+
+		assert_eq!(run("x = 5"), Some(5.0));
+		assert_eq!(get_variable("x"), Some(5.0));
+
+		assert_eq!(run("y = 10"), Some(10.0));
+		assert_eq!(get_variable("y"), Some(10.0));
+
+		assert_eq!(run("z = x + y"), Some(15.0));
+		assert_eq!(get_variable("z"), Some(15.0));
+	}
+
+	#[test]
+	fn test_variable_usage() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		clear_variables();
+		set_variable("a", 5.0);
+		set_variable("b", 3.0);
+
+		assert_eq!(run("a + b"), Some(8.0));
+		assert_eq!(run("a * b"), Some(15.0));
+		assert_eq!(run("a - b"), Some(2.0));
+		assert_eq!(run("a / b"), Some(5.0 / 3.0));
+	}
+
+	#[test]
+	fn test_complex_expressions() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		clear_variables();
+
+		assert_eq!(run("x = 2"), Some(2.0));
+		assert_eq!(run("y = 3"), Some(3.0));
+		assert_eq!(run("z = x * y + 1"), Some(7.0));
+		assert_eq!(get_variable("z"), Some(7.0));
+
+		assert_eq!(run("result = (x + y) * z"), Some(35.0));
+		assert_eq!(get_variable("result"), Some(35.0));
+	}
+
+	#[test]
+	fn test_floating_point_numbers() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		clear_variables();
+
+		assert_eq!(run("3.14 + 2.86"), Some(6.0));
+		assert_eq!(run("5.5 * 2"), Some(11.0));
+		assert_eq!(run("x = 3.14159"), Some(3.14159));
+		assert_eq!(get_variable("x"), Some(3.14159));
+	}
+
+	#[test]
+	fn test_division_by_zero() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		clear_variables();
+
+		// Division by zero should return None (error)
+		assert_eq!(run("5 / 0"), None);
+		assert_eq!(run("x = 10 / 0"), None);
+	}
+
+	#[test]
+	fn test_undefined_variables() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		clear_variables();
+
+		// Using undefined variables should work (they default to 0)
+		assert_eq!(run("undefined_var + 5"), Some(5.0));
+		assert_eq!(run("x = undefined_var * 2"), Some(0.0));
+	}
+
+	#[test]
+	fn test_multiple_statements() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		clear_variables();
+
+		// Test semicolon-separated statements
+		let result = run("x = 5; y = 10; z = x + y");
+		assert_eq!(result, Some(15.0));
+		assert_eq!(get_variable("x"), Some(5.0));
+		assert_eq!(get_variable("y"), Some(10.0));
+		assert_eq!(get_variable("z"), Some(15.0));
+	}
+
+	#[test]
+	fn test_newline_separated_statements() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		clear_variables();
+
+		// Test newline-separated statements
+		let result = run("x = 3\ny = 4\nresult = x * y");
+		assert_eq!(result, Some(12.0));
+		assert_eq!(get_variable("x"), Some(3.0));
+		assert_eq!(get_variable("y"), Some(4.0));
+		assert_eq!(get_variable("result"), Some(12.0));
+	}
+
+	#[test]
+	fn test_chained_assignments() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		clear_variables();
+
+		// Test that assignment returns the assigned value for chaining
+		assert_eq!(run("x = y = 5"), Some(5.0));
+		assert_eq!(get_variable("x"), Some(5.0));
+		assert_eq!(get_variable("y"), Some(5.0));
+	}
+
+	#[test]
+	fn test_assignment_with_expression() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		clear_variables();
+
+		set_variable("a", 10.0);
+		set_variable("b", 5.0);
+
+		assert_eq!(run("result = a * 2 + b"), Some(25.0));
+		assert_eq!(get_variable("result"), Some(25.0));
+	}
+
+	#[test]
+	fn test_empty_input() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		clear_variables();
+
+		assert_eq!(run(""), None);
+		assert_eq!(run("   "), None);
+	}
+
+	#[test]
+	fn test_whitespace_handling() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		clear_variables();
+
+		assert_eq!(run("  2   +   3  "), Some(5.0));
+		assert_eq!(run(" x = 5 "), Some(5.0));
+		assert_eq!(get_variable("x"), Some(5.0));
+	}
+
+	#[test]
+	fn test_variable_names() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		clear_variables();
+
+		// Test various valid variable names
+		assert_eq!(run("var1 = 5"), Some(5.0));
+		assert_eq!(run("_underscore = 10"), Some(10.0));
+		assert_eq!(run("camelCase = 15"), Some(15.0));
+		assert_eq!(run("snake_case = 20"), Some(20.0));
+
+		assert_eq!(get_variable("var1"), Some(5.0));
+		assert_eq!(get_variable("_underscore"), Some(10.0));
+		assert_eq!(get_variable("camelCase"), Some(15.0));
+		assert_eq!(get_variable("snake_case"), Some(20.0));
+	}
+
+	#[test]
+	fn test_large_numbers() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		clear_variables();
+
+		assert_eq!(run("1000000 + 1"), Some(1000001.0));
+		assert_eq!(run("x = 999999999"), Some(999999999.0));
+		assert_eq!(get_variable("x"), Some(999999999.0));
+	}
+
+	#[test]
+	fn test_negative_results() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		clear_variables();
+
+		assert_eq!(run("3 - 8"), Some(-5.0));
+		assert_eq!(run("x = 2 - 10"), Some(-8.0));
+		assert_eq!(get_variable("x"), Some(-8.0));
+	}
+
+	#[test]
+	fn test_fractional_results() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		clear_variables();
+
+		assert_eq!(run("7 / 2"), Some(3.5));
+		assert_eq!(run("1 / 3"), Some(1.0 / 3.0));
+	}
 }
