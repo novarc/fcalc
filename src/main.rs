@@ -11,8 +11,15 @@ use inkwell::context::Context;
 use inkwell::execution_engine::{ExecutionEngine, JitFunction};
 use inkwell::module::Module;
 
+use std::collections::HashMap;
 use std::error::Error;
+use std::sync::{LazyLock, Mutex};
 
+// Global variable storage for the REPL session
+static VARIABLES: LazyLock<Mutex<HashMap<String, f64>>> =
+	LazyLock::new(|| Mutex::new(HashMap::new()));
+
+#[allow(dead_code)]
 fn inkwell_example() -> Result<(), Box<dyn Error>> {
 	/// Convenience type alias for the `sum` function.
 	/// Calling this is innately `unsafe` because there's no guarantee it doesn't
@@ -81,94 +88,138 @@ fn inkwell_example() -> Result<(), Box<dyn Error>> {
 }
 
 fn execute_postfix_tokens(tokens: &[Token]) -> Result<(), Box<dyn Error>> {
-	let context = Context::create();
-	let module = context.create_module("postfix_eval");
-	let execution_engine = module.create_jit_execution_engine(OptimizationLevel::Aggressive)?;
-	let builder = context.create_builder();
-
-	// Create function type: () -> i64
-	let f64_type = context.f64_type();
-	let fn_type = f64_type.fn_type(&[], false);
-
-	// Create function
-	let function = module.add_function("eval_postfix", fn_type, None);
-	let basic_block = context.append_basic_block(function, "entry");
-	builder.position_at_end(basic_block);
-
-	// Stack to hold values during evaluation
-	let mut value_stack: Vec<inkwell::values::FloatValue> = Vec::new();
+	// For assignment operations, we need to handle them at runtime rather than compile time
+	// So we'll evaluate the postfix expression directly without LLVM for now
+	let mut value_stack: Vec<f64> = Vec::new();
+	let mut variable_stack: Vec<String> = Vec::new(); // For tracking variable names in assignment
 
 	for token in tokens {
 		match token {
 			Token::Number(lex::LangNumber::Integer(int_val)) => {
-				// Push integer constant onto stack
-				let const_val = f64_type.const_float(int_val.value as f64);
-				value_stack.push(const_val);
+				value_stack.push(int_val.value as f64);
+				variable_stack.push(String::new()); // Empty string for non-variables
 			}
 			Token::Number(lex::LangNumber::RealNumber(real_val)) => {
-				let const_val = f64_type.const_float(real_val.value as f64);
-				value_stack.push(const_val);
+				value_stack.push(real_val.value);
+				variable_stack.push(String::new()); // Empty string for non-variables
+			}
+			Token::Symbol(symbol) => {
+				// Always track the symbol name for potential assignment
+				variable_stack.push(symbol.value.clone());
+
+				// Check if this symbol is a variable, if so push its value
+				let variables = VARIABLES.lock().unwrap();
+				if let Some(&value) = variables.get(&symbol.value) {
+					value_stack.push(value);
+				} else {
+					// For new variables, push 0 as placeholder
+					value_stack.push(0.0);
+				}
 			}
 			Token::Operator(op) => match op.value.as_str() {
+				"=" => {
+					if value_stack.len() >= 2 && variable_stack.len() >= 2 {
+						let value = value_stack.pop().unwrap();
+						let _var_placeholder = value_stack.pop().unwrap(); // Remove placeholder
+
+						// Pop variable names (value operand first, then variable name)
+						variable_stack.pop(); // Pop the variable name for the value
+						let var_name = variable_stack.pop().unwrap(); // Pop the variable name for assignment target
+
+						if !var_name.is_empty() {
+							// Assign value to variable
+							let mut variables = VARIABLES.lock().unwrap();
+							variables.insert(var_name.clone(), value);
+							// println!("{} = {}", var_name, value);
+							// Push the assigned value back for potential chaining
+							value_stack.push(value);
+							variable_stack.push(String::new()); // Push placeholder for result
+						} else {
+							println!("Error: Assignment requires a variable name");
+						}
+					} else {
+						println!("Error: Assignment requires two operands");
+					}
+				}
 				"+" => {
 					if value_stack.len() >= 2 {
 						let b = value_stack.pop().unwrap();
 						let a = value_stack.pop().unwrap();
-						let result = builder.build_float_add(a, b, "add").unwrap();
+						let result = a + b;
 						value_stack.push(result);
+						// Clean up variable_stack for the two operands consumed and push placeholder for result
+						if variable_stack.len() >= 2 {
+							variable_stack.pop();
+							variable_stack.pop();
+							variable_stack.push(String::new()); // Placeholder for result
+						}
 					}
 				}
 				"-" => {
 					if value_stack.len() >= 2 {
 						let b = value_stack.pop().unwrap();
 						let a = value_stack.pop().unwrap();
-						let result = builder.build_float_sub(a, b, "sub").unwrap();
+						let result = a - b;
 						value_stack.push(result);
+						// Clean up variable_stack for the two operands consumed and push placeholder for result
+						if variable_stack.len() >= 2 {
+							variable_stack.pop();
+							variable_stack.pop();
+							variable_stack.push(String::new()); // Placeholder for result
+						}
 					}
 				}
 				"*" => {
 					if value_stack.len() >= 2 {
 						let b = value_stack.pop().unwrap();
 						let a = value_stack.pop().unwrap();
-						let result = builder.build_float_mul(a, b, "mul").unwrap();
+						let result = a * b;
 						value_stack.push(result);
+						// Clean up variable_stack for the two operands consumed and push placeholder for result
+						if variable_stack.len() >= 2 {
+							variable_stack.pop();
+							variable_stack.pop();
+							variable_stack.push(String::new()); // Placeholder for result
+						}
 					}
 				}
 				"/" => {
 					if value_stack.len() >= 2 {
 						let b = value_stack.pop().unwrap();
 						let a = value_stack.pop().unwrap();
-						let result = builder.build_float_div(a, b, "div").unwrap();
-						value_stack.push(result);
+						if b != 0.0 {
+							let result = a / b;
+							value_stack.push(result);
+						} else {
+							println!("Error: Division by zero");
+							value_stack.push(f64::NAN);
+						}
+						// Clean up variable_stack for the two operands consumed and push placeholder for result
+						if variable_stack.len() >= 2 {
+							variable_stack.pop();
+							variable_stack.pop();
+							variable_stack.push(String::new()); // Placeholder for result
+						}
 					}
 				}
 				_ => {
 					println!("Warning: Operator '{}' not supported yet", op.value);
 				}
 			},
-			Token::Symbol(_) | Token::String(_) => {
-				println!("Warning: Symbols and strings not supported in arithmetic evaluation");
+			Token::String(_) => {
+				println!("Warning: Strings not supported in arithmetic evaluation");
 			}
 		}
 	}
 
-	// Return the final result (top of stack) or 0 if stack is empty
-	let result = if let Some(final_value) = value_stack.pop() {
-		final_value
-	} else {
-		f64_type.const_float(0.0)
-	};
-
-	builder.build_return(Some(&result)).unwrap();
-
-	// JIT compile and call
-	type EvalFunc = unsafe extern "C" fn() -> f64;
-	let eval_fn: JitFunction<'_, EvalFunc> =
-		unsafe { execution_engine.get_function("eval_postfix").unwrap() };
-
-	unsafe {
-		let result = eval_fn.call();
-		println!("Evaluation result: {}", result);
+	// Show the final result if it's not an assignment
+	if let Some(result) = value_stack.last() {
+		if !tokens
+			.iter()
+			.any(|t| matches!(t, Token::Operator(op) if op.value == "="))
+		{
+			println!("{}", result);
+		}
 	}
 
 	Ok(())
@@ -294,7 +345,7 @@ fn run(line: &str) {
 	let mut token_iter = tokens.into_iter().peekable();
 	let block = parse_block(&mut token_iter);
 
-	println!("Parsed block:\n{}", block);
+	// println!("Parsed block:\n{}", block);
 
 	eval_block(&block);
 }
@@ -316,6 +367,10 @@ fn main() {
 	// run("if x > 0 { \n  y = x + 1; \n  z = y * 2 \n} else { \n  y = 0 \n}");
 
 	// let _ = inkwell_example();
+
+	// run("x = 10 ; y = 20 ; z = x + y ; z * 7");
+
+	// run("x = 10 ; y = 20 ; z = x + y ; z * 7");
 
 	let _ = repl();
 }
