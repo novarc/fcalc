@@ -79,6 +79,19 @@ pub fn lex(line: &str) -> Vec<Token> {
 			continue;
 		}
 
+		let bracket_chars = ['(', ')', '{', '}', '[', ']'];
+
+		// Handle bracket characters as separate single-character operators
+		if bracket_chars.contains(&ch) {
+			// End current token if any
+			if let Some(token) = current_token_chars.take() {
+				token_chars_collection.push(token);
+			}
+			// Add bracket as separate operator
+			token_chars_collection.push(TokenChars::Operator(vec![ch]));
+			continue;
+		}
+
 		// Check if we need to convert an operator to a comment
 		if let Some(TokenChars::Operator(chars)) = &mut current_token_chars {
 			if chars.len() == 1 && chars[0] == '/' && (ch == '/' || ch == '*') {

@@ -294,8 +294,7 @@ fn run(line: &str) {
 	let mut token_iter = tokens.into_iter().peekable();
 	let block = parse_block(&mut token_iter);
 
-	// println!("Parsed block:");
-	// print!("{}", block);
+	println!("Parsed block:\n{}", block);
 
 	eval_block(&block);
 }
