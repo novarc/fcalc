@@ -96,15 +96,27 @@ impl<'ctx> LLVMCodeGen<'ctx> {
 		self.module.add_function("printf", printf_type, None)
 	}
 
-	/// Create a global string constant
-	fn create_global_string(
+	/// Create a global string constant and return a pointer to the string data
+	fn create_global_string_ptr(
 		&mut self,
 		value: &str,
 		name: &str,
-	) -> inkwell::values::GlobalValue<'ctx> {
+	) -> inkwell::values::PointerValue<'ctx> {
 		// Check if global already exists
 		if let Some(global) = self.module.get_global(name) {
-			return global;
+			// Get pointer to the string data using GEP
+			let i32_type = self.context.i32_type();
+			let zero = i32_type.const_int(0, false);
+			return unsafe {
+				self.builder
+					.build_in_bounds_gep(
+						global.get_value_type().into_array_type(),
+						global.as_pointer_value(),
+						&[zero, zero],
+						"str_ptr",
+					)
+					.unwrap()
+			};
 		}
 
 		let string_val = self.context.const_string(value.as_bytes(), true); // true adds null terminator
@@ -116,7 +128,20 @@ impl<'ctx> LLVMCodeGen<'ctx> {
 		);
 		global.set_initializer(&string_val);
 		global.set_constant(true);
-		global
+
+		// Get pointer to the string data using GEP
+		let i32_type = self.context.i32_type();
+		let zero = i32_type.const_int(0, false);
+		unsafe {
+			self.builder
+				.build_in_bounds_gep(
+					string_val.get_type(),
+					global.as_pointer_value(),
+					&[zero, zero],
+					"str_ptr",
+				)
+				.unwrap()
+		}
 	}
 
 	/// Generate an executable binary from the current module
@@ -202,10 +227,7 @@ impl<'ctx> LLVMCodeGen<'ctx> {
 		let printf_fn = self.declare_printf();
 
 		// Create format string for printing floating point numbers
-		let format_string = self.create_global_string("%.15g\n", "fmt_float");
-
-		// Use the global string pointer directly
-		let format_ptr = format_string.as_pointer_value();
+		let format_ptr = self.create_global_string_ptr("%.15g\n", "fmt_float");
 
 		// Get the user function
 		if let Some(user_function) = self.module.get_function(function_name) {
@@ -1560,6 +1582,28 @@ fn create_executable_from_function(
 	Ok(())
 }
 
+/// Try to evaluate a block as a simple constant expression
+fn try_evaluate_as_constant(block: &parse::LangBlock) -> Option<f64> {
+	// For now, handle simple cases where the block contains only one line with no variables
+	if block.items.len() == 1 {
+		if let parse::LangBlockItem::Line(line) = &block.items[0] {
+			// Check if the line contains only numbers and basic operators
+			let has_variables = line
+				.tokens
+				.iter()
+				.any(|token| matches!(token, Token::Symbol(_)));
+
+			if !has_variables {
+				// Try to evaluate the expression directly
+				let unary_processed = preprocess_unary_minus(&line.tokens);
+				let postfix = infix_to_postfix(&unary_processed);
+				return execute_postfix_tokens(&postfix).ok().flatten();
+			}
+		}
+	}
+	None
+}
+
 /// Create a simple executable that evaluates an expression
 fn create_executable_from_expression(
 	expression: &str,
@@ -1586,8 +1630,7 @@ fn create_executable_from_expression(
 	let printf_fn = codegen.declare_printf();
 
 	// Create format string for printing floating point numbers
-	let format_string = codegen.create_global_string("%.15g\n", "fmt_float");
-	let format_ptr = format_string.as_pointer_value();
+	let format_ptr = codegen.create_global_string_ptr("%.15g\n", "fmt_float");
 
 	// Try to compile the expression
 	let empty_vars = HashMap::new();
@@ -1606,10 +1649,30 @@ fn create_executable_from_expression(
 			let return_val = i32_type.const_int(0, false);
 			codegen.builder.build_return(Some(&return_val)).unwrap();
 		}
-		Err(_) => {
-			// Expression too complex, return error
-			let return_val = i32_type.const_int(1, false);
-			codegen.builder.build_return(Some(&return_val)).unwrap();
+		Err(e) => {
+			// Expression compilation failed, try simple constant evaluation
+			println!("LLVM compilation failed: {}, trying constant evaluation", e);
+
+			// Try to evaluate the expression as a simple constant
+			if let Some(result_value) = try_evaluate_as_constant(&block) {
+				// Create a constant with the result and print it
+				let result_const = codegen.float_type.const_float(result_value);
+				codegen
+					.builder
+					.build_call(
+						printf_fn,
+						&[format_ptr.into(), result_const.into()],
+						"printf_call",
+					)
+					.unwrap();
+
+				let return_val = i32_type.const_int(0, false);
+				codegen.builder.build_return(Some(&return_val)).unwrap();
+			} else {
+				// Expression too complex, return error
+				let return_val = i32_type.const_int(1, false);
+				codegen.builder.build_return(Some(&return_val)).unwrap();
+			}
 		}
 	}
 

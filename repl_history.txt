@@ -1,13 +1,4 @@
 #V2
-_(3,4)
-sum = (a, b) => { a + b }
-fn sum(a, b) { a + b }
-sum(5, 3)
-fn square(x) { x * x }
-fn double(x) { x * 2 }
-y = square(5)
-z = double(y)
-z
 fn square(x) { x * x }
 square(5)
 fn cube(x) { x * x * x }
@@ -99,3 +90,12 @@ fn square(x) { x * x }
 :quit
 :compile_expr '5' test_simple
 :quit
+:compile_expr '5' test_simple
+:compile_expr "5*7+3" test_expr
+:compile_expr "5" test_simple
+fn add(x,y) { x + y }
+:compile add test_func 3 4
+:compile_expr "5" test_simple2
+:compile_expr "5" test_simple3
+:compile_expr 5 test_simple4
+:compile_expr 5*7+3 test_complex
