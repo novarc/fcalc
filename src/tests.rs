@@ -637,3 +637,248 @@ fn test_mixing_variables_and_functions() {
 	assert_eq!(run("double(5)"), Some(10.0)); // 5 * 2 = 10
 	assert_eq!(run("add(x, y)"), Some(30.0)); // 10 + 20 = 30
 }
+
+#[test]
+fn test_lambda_function_definition() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	// Test lambda function definition with two parameters
+	assert_eq!(run("add = (a, b) => {a + b}"), None);
+	assert!(function_exists("add"));
+	assert_eq!(get_function_param_count("add"), Some(2));
+
+	// Test lambda function definition with one parameter
+	assert_eq!(run("double = (x) => {x * 2}"), None);
+	assert!(function_exists("double"));
+	assert_eq!(get_function_param_count("double"), Some(1));
+
+	// Test lambda function definition with no parameters
+	assert_eq!(run("answer = () => {42}"), None);
+	assert!(function_exists("answer"));
+	assert_eq!(get_function_param_count("answer"), Some(0));
+}
+
+#[test]
+fn test_lambda_function_calls() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	// Define lambda functions first
+	run("sum = (a, b) => {a + b}");
+	run("square = (x) => {x * x}");
+	run("constant = () => {100}");
+
+	// Test lambda function calls
+	assert_eq!(run("sum(3, 4)"), Some(7.0)); // 3 + 4 = 7
+	assert_eq!(run("square(5)"), Some(25.0)); // 5 * 5 = 25
+	assert_eq!(run("constant()"), Some(100.0)); // constant function returns 100
+}
+
+#[test]
+fn test_lambda_function_with_complex_body() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	// Test lambda function with complex arithmetic in body
+	assert_eq!(run("complex = (x, y) => {x * 2 + y / 2 - 1}"), None);
+	assert!(function_exists("complex"));
+	assert_eq!(get_function_param_count("complex"), Some(2));
+
+	// Test calling the complex lambda function
+	assert_eq!(run("complex(5, 10)"), Some(14.0)); // 5 * 2 + 10 / 2 - 1 = 10 + 5 - 1 = 14
+}
+
+#[test]
+fn test_lambda_function_name_variations() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	// Test various valid lambda function names
+	assert_eq!(run("func1 = (x) => {x}"), None);
+	assert_eq!(run("_private = (a, b) => {a + b}"), None);
+	assert_eq!(run("camelCase = (n) => {n * 2}"), None);
+	assert_eq!(run("snake_case = (x, y, z) => {x + y + z}"), None);
+
+	// Verify all functions exist
+	assert!(function_exists("func1"));
+	assert!(function_exists("_private"));
+	assert!(function_exists("camelCase"));
+	assert!(function_exists("snake_case"));
+
+	// Verify parameter counts
+	assert_eq!(get_function_param_count("func1"), Some(1));
+	assert_eq!(get_function_param_count("_private"), Some(2));
+	assert_eq!(get_function_param_count("camelCase"), Some(1));
+	assert_eq!(get_function_param_count("snake_case"), Some(3));
+}
+
+#[test]
+fn test_lambda_function_redefinition() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	// Define a lambda function
+	assert_eq!(run("test = (x) => {x * 2}"), None);
+	assert!(function_exists("test"));
+	assert_eq!(get_function_param_count("test"), Some(1));
+
+	// Redefine the same function with different parameters
+	assert_eq!(run("test = (a, b) => {a + b}"), None);
+	assert!(function_exists("test"));
+	assert_eq!(get_function_param_count("test"), Some(2)); // Should be updated
+}
+
+#[test]
+fn test_lambda_function_calls_with_expressions() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	// Define a lambda function
+	run("calc = (x, y) => {x + y}");
+
+	// Test function calls with variable arguments
+	run("a = 5");
+	run("b = 3");
+
+	// Call function with variables
+	assert_eq!(run("calc(a, b)"), Some(8.0)); // 5 + 3 = 8
+
+	// Call function with expressions as arguments
+	assert_eq!(run("calc(2 + 3, 4 * 2)"), Some(13.0)); // (2 + 3) + (4 * 2) = 5 + 8 = 13
+}
+
+#[test]
+fn test_lambda_function_call_assignment() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	// Define a simple lambda function
+	run("add = (a, b) => {a + b}");
+	assert!(function_exists("add"));
+
+	// Test assigning lambda function call result to a variable
+	assert_eq!(run("x = add(2, 3)"), Some(5.0));
+	assert_eq!(get_variable("x"), Some(5.0));
+
+	// Test using the variable in another expression
+	assert_eq!(run("y = x * 2"), Some(10.0));
+	assert_eq!(get_variable("y"), Some(10.0));
+
+	// Test chaining lambda function calls
+	assert_eq!(run("z = add(x, y)"), Some(15.0));
+	assert_eq!(get_variable("z"), Some(15.0));
+
+	// Test lambda function call in complex expression
+	assert_eq!(run("result = add(1, 2) + add(3, 4)"), Some(10.0));
+	assert_eq!(get_variable("result"), Some(10.0));
+}
+
+#[test]
+fn test_mixing_lambda_and_named_functions() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	// Mix lambda functions and named functions
+	assert_eq!(run("lambda_add = (a, b) => {a + b}"), None);
+	assert_eq!(run("fn named_multiply(x, y) { x * y }"), None);
+	assert_eq!(run("lambda_square = (n) => {n * n}"), None);
+
+	// Verify all functions exist
+	assert!(function_exists("lambda_add"));
+	assert!(function_exists("named_multiply"));
+	assert!(function_exists("lambda_square"));
+
+	// Test calling both types of functions
+	assert_eq!(run("lambda_add(3, 4)"), Some(7.0)); // 3 + 4 = 7
+	assert_eq!(run("named_multiply(2, 5)"), Some(10.0)); // 2 * 5 = 10
+	assert_eq!(run("lambda_square(3)"), Some(9.0)); // 3 * 3 = 9
+
+	// Test mixing function calls step by step
+	assert_eq!(run("temp1 = named_multiply(2, 3)"), Some(6.0)); // 2 * 3 = 6
+	assert_eq!(run("temp2 = lambda_square(2)"), Some(4.0)); // 2 * 2 = 4
+	assert_eq!(run("result = lambda_add(temp1, temp2)"), Some(10.0)); // 6 + 4 = 10
+}
+
+#[test]
+fn test_lambda_function_with_single_parameter_no_parens() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	// Test lambda function with single parameter (should still require parentheses for consistency)
+	assert_eq!(run("increment = (x) => {x + 1}"), None);
+	assert!(function_exists("increment"));
+	assert_eq!(get_function_param_count("increment"), Some(1));
+
+	// Test calling the function
+	assert_eq!(run("increment(5)"), Some(6.0)); // 5 + 1 = 6
+}
+
+#[test]
+fn test_lambda_function_whitespace_handling() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	// Test lambda function with various whitespace
+	assert_eq!(run("  add  =  ( a , b )  =>  { a + b }  "), None);
+	assert!(function_exists("add"));
+	assert_eq!(get_function_param_count("add"), Some(2));
+
+	// Test calling the function
+	assert_eq!(run("add(2, 3)"), Some(5.0)); // 2 + 3 = 5
+}
+
+#[test]
+fn test_lambda_and_variables_interaction() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	// Mix lambda functions with variable assignments
+	assert_eq!(run("x = 10"), Some(10.0));
+	assert_eq!(run("multiply = (a, b) => {a * b}"), None);
+	assert_eq!(run("y = 5"), Some(5.0));
+
+	// Verify variables exist
+	assert_eq!(get_variable("x"), Some(10.0));
+	assert_eq!(get_variable("y"), Some(5.0));
+
+	// Verify function exists
+	assert!(function_exists("multiply"));
+
+	// Test using variables in lambda function calls
+	assert_eq!(run("result = multiply(x, y)"), Some(50.0)); // 10 * 5 = 50
+	assert_eq!(get_variable("result"), Some(50.0));
+}
