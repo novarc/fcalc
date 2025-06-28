@@ -1,5 +1,3 @@
-#![allow(warnings)]
-
 use crate::lex;
 use std::fmt;
 use std::iter::Peekable;

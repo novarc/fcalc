@@ -1,11 +1,4 @@
 #V2
-sum = (a, b) => { a + b }
-sum(5,7)
-sum = (a, b) => { a + b }
-sum(5,7)
-((a, b) => { a + b })(5,7)
-(a, b) => { a + b }
-_
 _(3,4)
 sum = (a, b) => { a + b }
 fn sum(a, b) { a + b }
@@ -99,3 +92,10 @@ fn quadratic(a, b, c, x) { a * x * x + b * x + c }
 :compile quadratic quad_calc 1.0 2.0 3.0 5.0
 :quit
 :compile quadratic quad_calc 1.0 2.0 3.0 5.0
+fn square(x) { x * x }
+:compile square test_square 5.0
+:quit
+:compile_expr '2+3*4' test_expr
+:quit
+:compile_expr '5' test_simple
+:quit

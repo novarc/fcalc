@@ -79,6 +79,46 @@ impl<'ctx> LLVMCodeGen<'ctx> {
 		})
 	}
 
+	/// Declare printf function for printing results
+	fn declare_printf(&mut self) -> FunctionValue<'ctx> {
+		// Check if printf is already declared
+		if let Some(printf_fn) = self.module.get_function("printf") {
+			return printf_fn;
+		}
+
+		let i8_type = self.context.i8_type();
+		let i8_ptr_type = i8_type.ptr_type(inkwell::AddressSpace::default());
+		let i32_type = self.context.i32_type();
+
+		// printf signature: int printf(const char* format, ...)
+		let printf_type = i32_type.fn_type(&[i8_ptr_type.into()], true); // true for variadic
+
+		self.module.add_function("printf", printf_type, None)
+	}
+
+	/// Create a global string constant
+	fn create_global_string(
+		&mut self,
+		value: &str,
+		name: &str,
+	) -> inkwell::values::GlobalValue<'ctx> {
+		// Check if global already exists
+		if let Some(global) = self.module.get_global(name) {
+			return global;
+		}
+
+		let string_val = self.context.const_string(value.as_bytes(), true); // true adds null terminator
+
+		let global = self.module.add_global(
+			string_val.get_type(),
+			Some(inkwell::AddressSpace::default()),
+			name,
+		);
+		global.set_initializer(&string_val);
+		global.set_constant(true);
+		global
+	}
+
 	/// Generate an executable binary from the current module
 	fn generate_executable(&self, output_path: &str) -> Result<(), Box<dyn Error>> {
 		// Initialize targets
@@ -158,6 +198,15 @@ impl<'ctx> LLVMCodeGen<'ctx> {
 		let basic_block = self.context.append_basic_block(main_function, "entry");
 		self.builder.position_at_end(basic_block);
 
+		// Declare printf function
+		let printf_fn = self.declare_printf();
+
+		// Create format string for printing floating point numbers
+		let format_string = self.create_global_string("%.15g\n", "fmt_float");
+
+		// Use the global string pointer directly
+		let format_ptr = format_string.as_pointer_value();
+
 		// Get the user function
 		if let Some(user_function) = self.module.get_function(function_name) {
 			// Prepare arguments
@@ -172,8 +221,23 @@ impl<'ctx> LLVMCodeGen<'ctx> {
 				.build_call(user_function, &llvm_args, "call_user_func")
 				.unwrap();
 
-			// Print the result (simplified - in real implementation you'd need printf)
-			// For now, just return 0
+			// Get the result value
+			let result_value = call_result
+				.try_as_basic_value()
+				.left()
+				.unwrap()
+				.into_float_value();
+
+			// Call printf to print the result
+			self.builder
+				.build_call(
+					printf_fn,
+					&[format_ptr.into(), result_value.into()],
+					"printf_call",
+				)
+				.unwrap();
+
+			// Return 0 for success
 			let return_val = i32_type.const_int(0, false);
 			self.builder.build_return(Some(&return_val)).unwrap();
 		} else {
@@ -1518,11 +1582,27 @@ fn create_executable_from_expression(
 	let basic_block = context.append_basic_block(main_function, "entry");
 	codegen.builder.position_at_end(basic_block);
 
+	// Declare printf function
+	let printf_fn = codegen.declare_printf();
+
+	// Create format string for printing floating point numbers
+	let format_string = codegen.create_global_string("%.15g\n", "fmt_float");
+	let format_ptr = format_string.as_pointer_value();
+
 	// Try to compile the expression
 	let empty_vars = HashMap::new();
 	match codegen.compile_block(&block, &empty_vars) {
-		Ok(_result) => {
-			// Expression compiled successfully
+		Ok(result) => {
+			// Expression compiled successfully, print the result
+			codegen
+				.builder
+				.build_call(
+					printf_fn,
+					&[format_ptr.into(), result.into()],
+					"printf_call",
+				)
+				.unwrap();
+
 			let return_val = i32_type.const_int(0, false);
 			codegen.builder.build_return(Some(&return_val)).unwrap();
 		}
