@@ -745,7 +745,16 @@ fn execute_function_call(call: &parse::LangFunctionCall) -> Result<f64, Box<dyn 
 		// Evaluate argument expressions to get actual values
 		let mut arg_values = Vec::new();
 		for arg_tokens in &call.arguments {
-			let unary_processed = preprocess_unary_minus(arg_tokens);
+			// First preprocess function calls in arguments
+			let function_processed = match preprocess_tokens_for_function_calls(arg_tokens) {
+				Ok(tokens) => tokens,
+				Err(e) => {
+					return Err(
+						format!("Error preprocessing function calls in argument: {}", e).into(),
+					);
+				}
+			};
+			let unary_processed = preprocess_unary_minus(&function_processed);
 			let postfix = infix_to_postfix(&unary_processed);
 			match execute_postfix_tokens(&postfix)? {
 				Some(value) => arg_values.push(value),

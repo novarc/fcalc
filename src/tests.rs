@@ -1192,9 +1192,7 @@ fn test_function_with_large_expressions() {
 	// Test polynomial function: x^4 + 3x^3 + 2x^2 + x + 1
 	assert_eq!(run("polynomial(0)"), Some(1.0)); // 0 + 0 + 0 + 0 + 1 = 1
 	assert_eq!(run("polynomial(1)"), Some(8.0)); // 1 + 3 + 2 + 1 + 1 = 8
-	assert_eq!(run("polynomial(2)"), Some(49.0)); // 16 + 24 + 8 + 2 + 1 = 51... wait let me recalculate
-	// 2^4 + 3*2^3 + 2*2^2 + 2 + 1 = 16 + 24 + 8 + 2 + 1 = 51
-	assert_eq!(run("polynomial(2)"), Some(51.0));
+	assert_eq!(run("polynomial(2)"), Some(51.0)); // 2^4 + 3*2^3 + 2*2^2 + 2 + 1 = 16 + 24 + 8 + 2 + 1 = 51
 }
 
 #[test]
@@ -1306,7 +1304,7 @@ fn test_function_with_arithmetic_precedence() {
 	assert!(function_exists("complex_precedence"));
 
 	// Test complex precedence: (x * y) / z + x - y
-	assert_eq!(run("complex_precedence(6, 4, 2)"), Some(10.0)); // (6 * 4) / 2 + 6 - 4 = 24/2 + 6 - 4 = 12 + 6 - 4 = 14
+	assert_eq!(run("complex_precedence(6, 4, 2)"), Some(14.0)); // (6 * 4) / 2 + 6 - 4 = 24/2 + 6 - 4 = 12 + 6 - 4 = 14
 }
 
 #[test]
