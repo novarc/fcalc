@@ -344,6 +344,15 @@ fn eval_block(block: &LangBlock) -> Option<f64> {
 				let result = eval_block(nested_block);
 				last_result = result;
 			}
+			parse::LangBlockItem::Function(function) => {
+				// For now, just print the function definition and return None
+				// In a full implementation, this would store the function for later calls
+				println!(
+					"Function defined: ({}) => {{ ... }}",
+					function.parameters.join(", ")
+				);
+				last_result = None;
+			}
 		}
 	}
 
@@ -652,5 +661,19 @@ mod tests {
 
 		assert_eq!(run("7 / 2"), Some(3.5));
 		assert_eq!(run("1 / 3"), Some(1.0 / 3.0));
+	}
+
+	#[test]
+	fn test_function_parsing() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		clear_variables();
+
+		// Test that function definitions are parsed correctly and return None
+		assert_eq!(run("(x, y) => { x + y }"), None);
+		assert_eq!(run("(a) => { a * 2 }"), None);
+		assert_eq!(run("() => { 42 }"), None);
+
+		// Test that functions can be defined alongside other expressions
+		assert_eq!(run("x = 5; (a) => { a + x }"), None);
 	}
 }
