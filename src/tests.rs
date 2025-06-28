@@ -339,12 +339,12 @@ fn test_function_parsing() {
 	clear_functions();
 
 	// Test that function definitions are parsed correctly and return None
-	assert_eq!(run("(x, y) => { x + y }"), None);
-	assert_eq!(run("(a) => { a * 2 }"), None);
-	assert_eq!(run("() => { 42 }"), None);
+	assert_eq!(run("fn add(x, y) { x + y }"), None);
+	assert_eq!(run("fn double(a) { a * 2 }"), None);
+	assert_eq!(run("fn answer() { 42 }"), None);
 
 	// Test that functions can be defined alongside other expressions
-	assert_eq!(run("x = 5; (a) => { a + x }"), None);
+	assert_eq!(run("x = 5; fn increment(a) { a + x }"), None);
 }
 
 #[test]
@@ -356,17 +356,17 @@ fn test_named_function_definition() {
 	clear_functions();
 
 	// Test named function definition with two parameters
-	assert_eq!(run("sum = (a, b) => { a + b }"), None);
+	assert_eq!(run("fn sum(a, b) { a + b }"), None);
 	assert!(function_exists("sum"));
 	assert_eq!(get_function_param_count("sum"), Some(2));
 
 	// Test named function definition with one parameter
-	assert_eq!(run("double = (x) => { x * 2 }"), None);
+	assert_eq!(run("fn double(x) { x * 2 }"), None);
 	assert!(function_exists("double"));
 	assert_eq!(get_function_param_count("double"), Some(1));
 
 	// Test named function definition with no parameters
-	assert_eq!(run("answer = () => { 42 }"), None);
+	assert_eq!(run("fn answer() { 42 }"), None);
 	assert!(function_exists("answer"));
 	assert_eq!(get_function_param_count("answer"), Some(0));
 }
@@ -380,9 +380,9 @@ fn test_function_calls() {
 	clear_functions();
 
 	// Define functions first
-	run("sum = (a, b) => { a + b }");
-	run("square = (x) => { x * x }");
-	run("constant = () => { 100 }");
+	run("fn sum(a, b) { a + b }");
+	run("fn square(x) { x * x }");
+	run("fn constant() { 100 }");
 
 	// Test function calls (should return actual computed results)
 	assert_eq!(run("sum(3, 4)"), Some(7.0)); // 3 + 4 = 7
@@ -399,9 +399,9 @@ fn test_multiple_function_definitions() {
 	clear_functions();
 
 	// Define multiple functions
-	assert_eq!(run("add = (x, y) => { x + y }"), None);
-	assert_eq!(run("multiply = (a, b) => { a * b }"), None);
-	assert_eq!(run("negate = (n) => { 0 - n }"), None);
+	assert_eq!(run("fn add(x, y) { x + y }"), None);
+	assert_eq!(run("fn multiply(a, b) { a * b }"), None);
+	assert_eq!(run("fn negate(n) { 0 - n }"), None);
 
 	// Verify all functions exist
 	assert!(function_exists("add"));
@@ -423,7 +423,7 @@ fn test_function_with_complex_body() {
 	clear_functions();
 
 	// Test function with complex arithmetic in body
-	assert_eq!(run("complex = (x, y) => { x * 2 + y / 2 - 1 }"), None);
+	assert_eq!(run("fn complex(x, y) { x * 2 + y / 2 - 1 }"), None);
 	assert!(function_exists("complex"));
 	assert_eq!(get_function_param_count("complex"), Some(2));
 
@@ -440,10 +440,10 @@ fn test_function_name_variations() {
 	clear_functions();
 
 	// Test various valid function names
-	assert_eq!(run("func1 = (x) => { x }"), None);
-	assert_eq!(run("_private = (a, b) => { a + b }"), None);
-	assert_eq!(run("camelCase = (n) => { n * 2 }"), None);
-	assert_eq!(run("snake_case = (x, y, z) => { x + y + z }"), None);
+	assert_eq!(run("fn func1(x) { x }"), None);
+	assert_eq!(run("fn _private(a, b) { a + b }"), None);
+	assert_eq!(run("fn camelCase(n) { n * 2 }"), None);
+	assert_eq!(run("fn snake_case(x, y, z) { x + y + z }"), None);
 
 	// Verify all functions exist
 	assert!(function_exists("func1"));
@@ -479,20 +479,16 @@ fn test_anonymous_vs_named_functions() {
 	clear_variables();
 	clear_functions();
 
-	// Define anonymous function (auto-named)
-	assert_eq!(run("(x) => { x + 1 }"), None);
-
-	// Define named function
-	assert_eq!(run("increment = (x) => { x + 1 }"), None);
+	// Define named function with new syntax
+	assert_eq!(run("fn increment(x) { x + 1 }"), None);
 
 	// Check that named function exists with correct name
 	assert!(function_exists("increment"));
 	assert_eq!(get_function_param_count("increment"), Some(1));
 
-	// Check that auto-generated function also exists
-	// (The exact auto-generated name depends on implementation)
+	// Only named functions now (no more anonymous functions)
 	let functions = FUNCTIONS.lock().unwrap();
-	assert!(functions.len() >= 2); // At least 2 functions should exist
+	assert!(functions.len() >= 1); // At least 1 function should exist
 }
 
 #[test]
@@ -504,12 +500,12 @@ fn test_function_redefinition() {
 	clear_functions();
 
 	// Define a function
-	assert_eq!(run("test = (x) => { x * 2 }"), None);
+	assert_eq!(run("fn test(x) { x * 2 }"), None);
 	assert!(function_exists("test"));
 	assert_eq!(get_function_param_count("test"), Some(1));
 
 	// Redefine the same function with different parameters
-	assert_eq!(run("test = (a, b) => { a + b }"), None);
+	assert_eq!(run("fn test(a, b) { a + b }"), None);
 	assert!(function_exists("test"));
 	assert_eq!(get_function_param_count("test"), Some(2)); // Should be updated
 }
@@ -523,7 +519,7 @@ fn test_function_calls_with_expressions() {
 	clear_functions();
 
 	// Define a function
-	run("calc = (x, y) => { x + y }");
+	run("fn calc(x, y) { x + y }");
 
 	// Test function calls with variable arguments
 	run("a = 5");
@@ -546,9 +542,9 @@ fn test_mixing_variables_and_functions() {
 
 	// Mix variable assignments and function definitions
 	assert_eq!(run("x = 10"), Some(10.0));
-	assert_eq!(run("double = (n) => { n * 2 }"), None);
+	assert_eq!(run("fn double(n) { n * 2 }"), None);
 	assert_eq!(run("y = 20"), Some(20.0));
-	assert_eq!(run("add = (a, b) => { a + b }"), None);
+	assert_eq!(run("fn add(a, b) { a + b }"), None);
 
 	// Verify variables exist
 	assert_eq!(get_variable("x"), Some(10.0));

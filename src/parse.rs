@@ -55,8 +55,50 @@ pub fn parse_block(tokens: &mut Peekable<IntoIter<lex::Token>>) -> LangBlock {
 	while let Some(token) = tokens.next() {
 		match &token {
 			lex::Token::Symbol(symbol) => {
+				// Check if this is the 'fn' keyword for function definition
+				if symbol.value == "fn" {
+					// Parse function definition: fn name(params) { body }
+					if let Some(lex::Token::Symbol(name_symbol)) = tokens.next() {
+						let function_name = name_symbol.value.clone();
+
+						// Expect opening parenthesis
+						if let Some(lex::Token::Operator(op)) = tokens.next() {
+							if op.value == "(" {
+								// Parse parameters
+								let parameters = parse_function_parameters_until_paren(tokens);
+
+								// Expect opening brace
+								if let Some(lex::Token::Operator(brace)) = tokens.next() {
+									if brace.value == "{" {
+										let body = parse_block(tokens);
+
+										if !current_line_tokens.is_empty() {
+											let lang_line = LangLine {
+												tokens: current_line_tokens,
+											};
+											block_items.push(LangBlockItem::Line(lang_line));
+											current_line_tokens = Vec::new();
+										}
+
+										// Create a named function
+										let named_function = LangNamedFunction {
+											name: function_name,
+											parameters,
+											body,
+										};
+										block_items
+											.push(LangBlockItem::NamedFunction(named_function));
+										continue;
+									}
+								}
+							}
+						}
+					}
+					// If we get here, it wasn't a valid function, treat as regular token
+					current_line_tokens.push(token);
+				}
 				// Check if this is a function assignment: symbol = (params) => { body }
-				if let Some(lex::Token::Operator(op)) = tokens.peek() {
+				else if let Some(lex::Token::Operator(op)) = tokens.peek() {
 					if op.value == "=" {
 						// Look ahead to see if this is a function assignment
 						let mut lookahead_tokens = Vec::new();

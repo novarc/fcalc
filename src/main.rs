@@ -775,9 +775,8 @@ fn main() {
 	println!("Features:");
 	println!("  • Basic arithmetic: 2 + 3 * 4");
 	println!("  • Variables: x = 5; y = x * 2");
-	println!("  • Functions: (x) => {{ x + 1 }}");
-	println!("  • Named functions: sum = (a, b) => {{ a + b }}");
-	println!("  • Function calls: sum(5, 3)");
+	println!("  • Functions: fn increment(x) {{ x + 1 }}");
+	println!("  • Function calls: increment(5)");
 	println!("");
 
 	let _ = repl();
