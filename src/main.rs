@@ -8,7 +8,7 @@ use parse::{LangBlock, LangLine, parse_block};
 use inkwell::OptimizationLevel;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
-use inkwell::execution_engine::{ExecutionEngine, JitFunction};
+use inkwell::execution_engine::ExecutionEngine;
 use inkwell::module::Module;
 
 use std::collections::HashMap;
@@ -286,10 +286,10 @@ fn compile_and_store_named_function(
 	// Compile the named function
 	let _llvm_function = codegen.compile_named_function(named_function)?;
 
-	println!(
-		"Successfully compiled named function '{}' with LLVM",
-		named_function.name
-	);
+	// println!(
+	// 	"Successfully compiled named function '{}' with LLVM",
+	// 	named_function.name
+	// );
 	Ok(())
 }
 
@@ -388,74 +388,6 @@ fn execute_function_call(call: &parse::LangFunctionCall) -> Result<f64, Box<dyn 
 	} else {
 		Err(format!("Function '{}' not found", call.name).into())
 	}
-}
-
-#[allow(dead_code)]
-fn inkwell_example() -> Result<(), Box<dyn Error>> {
-	/// Convenience type alias for the `sum` function.
-	/// Calling this is innately `unsafe` because there's no guarantee it doesn't
-	/// do `unsafe` operations internally.
-	type SumFunc = unsafe extern "C" fn(u64, u64, u64) -> u64;
-
-	/// A struct that contains the context, module, builder, and execution engine.
-	/// This is used to generate the LLVM IR for the `sum` function.
-	struct CodeGen<'ctx> {
-		context: &'ctx Context,
-		module: Module<'ctx>,
-		builder: Builder<'ctx>,
-		execution_engine: ExecutionEngine<'ctx>,
-	}
-
-	let context = Context::create();
-	let module = context.create_module("sum");
-	let execution_engine = module.create_jit_execution_engine(OptimizationLevel::None)?;
-	let codegen = CodeGen {
-		context: &context,
-		module,
-		builder: context.create_builder(),
-		execution_engine,
-	};
-
-	let i64_type = codegen.context.i64_type();
-	let fn_type = i64_type.fn_type(&[i64_type.into(), i64_type.into(), i64_type.into()], false);
-	let function = codegen.module.add_function("sum", fn_type, None);
-	let basic_block = codegen.context.append_basic_block(function, "entry");
-
-	codegen.builder.position_at_end(basic_block);
-
-	let x = function
-		.get_nth_param(0)
-		.ok_or("param 0 missing")?
-		.into_int_value();
-	let y = function
-		.get_nth_param(1)
-		.ok_or("param 1 missing")?
-		.into_int_value();
-	let z = function
-		.get_nth_param(2)
-		.ok_or("param 2 missing")?
-		.into_int_value();
-
-	let sum = codegen.builder.build_int_add(x, y, "sum").unwrap();
-	let sum = codegen.builder.build_int_add(sum, z, "sum").unwrap();
-
-	codegen.builder.build_return(Some(&sum)).unwrap();
-
-	let llvm_fn: Option<JitFunction<'_, SumFunc>> =
-		unsafe { codegen.execution_engine.get_function("sum").ok() };
-
-	let sum = llvm_fn.ok_or("Unable to JIT compile `sum`")?;
-
-	let x = 1u64;
-	let y = 2u64;
-	let z = 3u64;
-
-	unsafe {
-		println!("{} + {} + {} = {}", x, y, z, sum.call(x, y, z));
-		assert_eq!(sum.call(x, y, z), x + y + z);
-	}
-
-	Ok(())
 }
 
 fn execute_postfix_tokens(tokens: &[Token]) -> Result<Option<f64>, Box<dyn Error>> {
@@ -601,7 +533,7 @@ fn execute_postfix_tokens(tokens: &[Token]) -> Result<Option<f64>, Box<dyn Error
 			.iter()
 			.any(|t| matches!(t, Token::Operator(op) if op.value == "="))
 		{
-			println!("{}", result);
+			// println!("{}", result);
 			Ok(Some(*result))
 		} else {
 			Ok(Some(*result))
@@ -760,11 +692,11 @@ fn eval_block(block: &LangBlock) -> Option<f64> {
 								functions.insert(func_name.clone(), function.clone());
 							}
 						}
-						println!(
-							"Function defined: {} ({}) => {{ ... }}",
-							func_name,
-							function.parameters.join(", ")
-						);
+						// println!(
+						// 	"Function defined: {} ({}) => {{ ... }}",
+						// 	func_name,
+						// 	function.parameters.join(", ")
+						// );
 					}
 					Err(e) => {
 						println!("Error compiling function: {}", e);
@@ -793,11 +725,11 @@ fn eval_block(block: &LangBlock) -> Option<f64> {
 								functions.insert(named_function.name.clone(), function);
 							}
 						}
-						println!(
-							"Function defined: {} ({}) => {{ ... }}",
-							named_function.name,
-							named_function.parameters.join(", ")
-						);
+						// println!(
+						// 	"Function defined: {} ({}) => {{ ... }}",
+						// 	named_function.name,
+						// 	named_function.parameters.join(", ")
+						// );
 					}
 					Err(e) => {
 						println!("Error compiling function: {}", e);
@@ -838,8 +770,8 @@ fn run(line: &str) -> Option<f64> {
 }
 
 fn main() {
-	println!("FCal Calculator with LLVM Function Support");
-	println!("=========================================");
+	println!("Fast Calculator");
+	println!("===============");
 	println!("Features:");
 	println!("  • Basic arithmetic: 2 + 3 * 4");
 	println!("  • Variables: x = 5; y = x * 2");

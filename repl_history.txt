@@ -64,3 +64,18 @@ constant()
 complex = (x, y) => { x * 2 + y / 2 - 1 }
 complex(5, 10)
 exit
+sum = (a, b) => { a + b }
+sum(5,7)
+sum = (a, b) => { a + b }
+sum(5,7)
+sum = (a, b) => { a + b }
+sum(5,7)
+sum = (a, b) => { a + b }
+sum(5,7)
+sum = (a, b) => { a + b }
+sum(5,7)
+((a, b) => { a + b })(5,7)
+(a, b) => { a + b }
+_
+_(3,4)
+sum = (a, b) => { a + b }
