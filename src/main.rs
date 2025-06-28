@@ -390,6 +390,87 @@ fn execute_function_call(call: &parse::LangFunctionCall) -> Result<f64, Box<dyn 
 	}
 }
 
+/// Preprocess tokens to handle function calls in expressions
+fn preprocess_tokens_for_function_calls(tokens: &[Token]) -> Result<Vec<Token>, Box<dyn Error>> {
+	let mut result = Vec::new();
+	let mut i = 0;
+
+	while i < tokens.len() {
+		if i + 1 < tokens.len() {
+			// Check for function call pattern: Symbol followed by (
+			if let (Token::Symbol(func_name), Token::Operator(op)) = (&tokens[i], &tokens[i + 1]) {
+				if op.value == "(" {
+					// Found a function call pattern, parse arguments
+					let mut j = i + 2; // Start after the opening parenthesis
+					let mut paren_count = 1;
+					let mut arg_tokens = Vec::new();
+					let mut current_arg = Vec::new();
+
+					while j < tokens.len() && paren_count > 0 {
+						match &tokens[j] {
+							Token::Operator(op) if op.value == "(" => {
+								paren_count += 1;
+								current_arg.push(tokens[j].clone());
+							}
+							Token::Operator(op) if op.value == ")" => {
+								paren_count -= 1;
+								if paren_count == 0 {
+									// End of function call
+									if !current_arg.is_empty() {
+										arg_tokens.push(current_arg.clone());
+									}
+								} else {
+									current_arg.push(tokens[j].clone());
+								}
+							}
+							Token::Operator(op) if op.value == "," && paren_count == 1 => {
+								// Argument separator at top level
+								if !current_arg.is_empty() {
+									arg_tokens.push(current_arg.clone());
+									current_arg.clear();
+								}
+							}
+							_ => {
+								current_arg.push(tokens[j].clone());
+							}
+						}
+						j += 1;
+					}
+
+					// Execute the function call and replace with the result
+					let function_call = parse::LangFunctionCall {
+						name: func_name.value.clone(),
+						arguments: arg_tokens,
+					};
+
+					match execute_function_call(&function_call) {
+						Ok(result_value) => {
+							// Replace the function call with its result as a number token
+							result.push(Token::Number(lex::LangNumber::RealNumber(
+								lex::LangRealNumber {
+									value: result_value,
+								},
+							)));
+						}
+						Err(e) => {
+							return Err(format!("Function call error: {}", e).into());
+						}
+					}
+
+					i = j; // Skip past the function call tokens
+					continue;
+				}
+			}
+		}
+
+		// Not a function call, add the token as-is
+		result.push(tokens[i].clone());
+		i += 1;
+	}
+
+	Ok(result)
+}
+
 fn execute_postfix_tokens(tokens: &[Token]) -> Result<Option<f64>, Box<dyn Error>> {
 	// For assignment operations, we need to handle them at runtime rather than compile time
 	// So we'll evaluate the postfix expression directly without LLVM for now
@@ -546,8 +627,21 @@ fn execute_postfix_tokens(tokens: &[Token]) -> Result<Option<f64>, Box<dyn Error
 fn eval_line(line: &LangLine) -> Option<f64> {
 	// println!("Evaluating line:");
 
+	// First preprocess tokens to handle function calls
+	let processed_tokens = match preprocess_tokens_for_function_calls(&line.tokens) {
+		Ok(tokens) => tokens,
+		Err(e) => {
+			println!("Error preprocessing function calls: {}", e);
+			return None;
+		}
+	};
+
+	// Debug output
+	// println!("Original tokens: {:?}", line.tokens);
+	// println!("Processed tokens: {:?}", processed_tokens);
+
 	// Convert infix to postfix using Shunting Yard algorithm
-	let postfix_tokens = infix_to_postfix(&line.tokens);
+	let postfix_tokens = infix_to_postfix(&processed_tokens);
 
 	// println!("Original tokens: {:?}", line.tokens);
 	// println!("Postfix tokens: {:?}", postfix_tokens);

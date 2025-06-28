@@ -192,23 +192,41 @@ pub fn parse_block(tokens: &mut Peekable<IntoIter<lex::Token>>) -> LangBlock {
 							current_line_tokens.push(token);
 						}
 					} else if op.value == "(" {
-						// This is a function call
-						tokens.next(); // consume the '('
-
-						let arguments = parse_function_arguments(tokens);
-
+						// This could be a function call
+						// If we have accumulated tokens, treat this as part of an expression
 						if !current_line_tokens.is_empty() {
-							let lang_line = LangLine {
-								tokens: current_line_tokens,
-							};
-							block_items.push(LangBlockItem::Line(lang_line));
-							current_line_tokens = Vec::new();
-						}
+							// Add the symbol and parentheses as tokens to the current expression
+							current_line_tokens.push(token);
+							current_line_tokens.push(tokens.next().unwrap()); // consume the '('
 
-						block_items.push(LangBlockItem::FunctionCall(LangFunctionCall {
-							name: symbol.value.clone(),
-							arguments,
-						}));
+							// Add all tokens until the matching closing parenthesis
+							let mut paren_count = 1;
+							while let Some(next_token) = tokens.next() {
+								current_line_tokens.push(next_token.clone());
+								match &next_token {
+									lex::Token::Operator(op) if op.value == "(" => {
+										paren_count += 1;
+									}
+									lex::Token::Operator(op) if op.value == ")" => {
+										paren_count -= 1;
+										if paren_count == 0 {
+											break;
+										}
+									}
+									_ => {}
+								}
+							}
+						} else {
+							// This is a standalone function call
+							tokens.next(); // consume the '('
+
+							let arguments = parse_function_arguments(tokens);
+
+							block_items.push(LangBlockItem::FunctionCall(LangFunctionCall {
+								name: symbol.value.clone(),
+								arguments,
+							}));
+						}
 					} else {
 						// Regular symbol, add to current line
 						current_line_tokens.push(token);

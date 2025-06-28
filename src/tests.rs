@@ -533,6 +533,85 @@ fn test_function_calls_with_expressions() {
 }
 
 #[test]
+fn test_function_call_assignment() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	// Define a simple function
+	run("fn add(a, b) { a + b }");
+	assert!(function_exists("add"));
+
+	// Test assigning function call result to a variable
+	assert_eq!(run("x = add(2, 3)"), Some(5.0));
+	assert_eq!(get_variable("x"), Some(5.0));
+
+	// Test using the variable in another expression
+	assert_eq!(run("y = x * 2"), Some(10.0));
+	assert_eq!(get_variable("y"), Some(10.0));
+
+	// Test chaining function calls
+	assert_eq!(run("z = add(x, y)"), Some(15.0));
+	assert_eq!(get_variable("z"), Some(15.0));
+
+	// Test function call in complex expression
+	assert_eq!(run("result = add(1, 2) + add(3, 4)"), Some(10.0));
+	assert_eq!(get_variable("result"), Some(10.0));
+}
+
+#[test]
+fn test_multiple_function_call_assignments() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	// Define multiple functions
+	run("fn multiply(a, b) { a * b }");
+	run("fn subtract(a, b) { a - b }");
+
+	assert!(function_exists("multiply"));
+	assert!(function_exists("subtract"));
+
+	// Test multiple function call assignments
+	assert_eq!(run("a = multiply(3, 4)"), Some(12.0));
+	assert_eq!(run("b = subtract(10, 3)"), Some(7.0));
+	assert_eq!(run("c = multiply(a, b)"), Some(84.0));
+
+	assert_eq!(get_variable("a"), Some(12.0));
+	assert_eq!(get_variable("b"), Some(7.0));
+	assert_eq!(get_variable("c"), Some(84.0));
+}
+
+#[test]
+fn test_function_call_with_variables() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	// Define function
+	run("fn power(base, exp) { base * base }"); // Simple square for testing
+	assert!(function_exists("power"));
+
+	// Set up variables
+	set_variable("base", 5.0);
+	set_variable("exp", 2.0);
+
+	// Test function call with variables as arguments
+	assert_eq!(run("result = power(base, exp)"), Some(25.0));
+	assert_eq!(get_variable("result"), Some(25.0));
+
+	// Test mixing literals and variables
+	assert_eq!(run("result2 = power(3, exp)"), Some(9.0));
+	assert_eq!(get_variable("result2"), Some(9.0));
+}
+
+#[test]
 fn test_mixing_variables_and_functions() {
 	let _guard = TEST_MUTEX
 		.lock()
