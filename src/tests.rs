@@ -384,10 +384,10 @@ fn test_function_calls() {
 	run("square = (x) => { x * x }");
 	run("constant = () => { 100 }");
 
-	// Test function calls (currently returns parameter count as demo)
-	assert_eq!(run("sum(3, 4)"), Some(2.0)); // 2 parameters
-	assert_eq!(run("square(5)"), Some(1.0)); // 1 parameter
-	assert_eq!(run("constant()"), Some(0.0)); // 0 parameters
+	// Test function calls (should return actual computed results)
+	assert_eq!(run("sum(3, 4)"), Some(7.0)); // 3 + 4 = 7
+	assert_eq!(run("square(5)"), Some(25.0)); // 5 * 5 = 25
+	assert_eq!(run("constant()"), Some(100.0)); // constant function returns 100
 }
 
 #[test]
@@ -428,7 +428,7 @@ fn test_function_with_complex_body() {
 	assert_eq!(get_function_param_count("complex"), Some(2));
 
 	// Test calling the complex function
-	assert_eq!(run("complex(5, 10)"), Some(2.0)); // Returns parameter count
+	assert_eq!(run("complex(5, 10)"), Some(14.0)); // 5 * 2 + 10 / 2 - 1 = 10 + 5 - 1 = 14
 }
 
 #[test]
@@ -529,11 +529,11 @@ fn test_function_calls_with_expressions() {
 	run("a = 5");
 	run("b = 3");
 
-	// Call function with variables (currently returns parameter count)
-	assert_eq!(run("calc(a, b)"), Some(2.0));
+	// Call function with variables (should return actual sum)
+	assert_eq!(run("calc(a, b)"), Some(8.0)); // 5 + 3 = 8
 
 	// Call function with expressions as arguments
-	assert_eq!(run("calc(2 + 3, 4 * 2)"), Some(2.0));
+	assert_eq!(run("calc(2 + 3, 4 * 2)"), Some(13.0)); // (2 + 3) + (4 * 2) = 5 + 8 = 13
 }
 
 #[test]
@@ -559,6 +559,6 @@ fn test_mixing_variables_and_functions() {
 	assert!(function_exists("add"));
 
 	// Test function calls
-	assert_eq!(run("double(5)"), Some(1.0)); // 1 parameter
-	assert_eq!(run("add(x, y)"), Some(2.0)); // 2 parameters
+	assert_eq!(run("double(5)"), Some(10.0)); // 5 * 2 = 10
+	assert_eq!(run("add(x, y)"), Some(30.0)); // 10 + 20 = 30
 }

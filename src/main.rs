@@ -275,22 +275,6 @@ impl<'ctx> LLVMCodeGen<'ctx> {
 	}
 }
 
-/// Compile and store a function using LLVM
-fn compile_and_store_function(
-	name: &str,
-	function: &parse::LangFunction,
-) -> Result<(), Box<dyn Error>> {
-	// Create a new LLVM context for this compilation
-	let context = Context::create();
-	let mut codegen = LLVMCodeGen::new(&context)?;
-
-	// Compile the function
-	let _llvm_function = codegen.compile_function(name, function)?;
-
-	println!("Successfully compiled function '{}' with LLVM", name);
-	Ok(())
-}
-
 /// Compile and store a named function using LLVM
 fn compile_and_store_named_function(
 	named_function: &parse::LangNamedFunction,
@@ -321,6 +305,27 @@ fn execute_function_call(call: &parse::LangFunctionCall) -> Result<f64, Box<dyn 
 	};
 
 	if let Some(function) = function_opt {
+		// Evaluate argument expressions to get actual values
+		let mut arg_values = Vec::new();
+		for arg_tokens in &call.arguments {
+			let postfix = infix_to_postfix(arg_tokens);
+			match execute_postfix_tokens(&postfix)? {
+				Some(value) => arg_values.push(value),
+				None => return Err("Argument expression evaluation failed".into()),
+			}
+		}
+
+		// Check argument count matches function parameters
+		if arg_values.len() != function.parameters.len() {
+			return Err(format!(
+				"Function '{}' expects {} arguments, got {}",
+				call.name,
+				function.parameters.len(),
+				arg_values.len()
+			)
+			.into());
+		}
+
 		// Create a new LLVM context and compile the function for execution
 		let context = Context::create();
 		let mut codegen = LLVMCodeGen::new(&context)?;
@@ -328,16 +333,58 @@ fn execute_function_call(call: &parse::LangFunctionCall) -> Result<f64, Box<dyn 
 		// Compile the function
 		let _llvm_function = codegen.compile_function(&call.name, &function)?;
 
-		// For now, execute with dummy arguments (all zeros)
-		// In a real implementation, we'd compile the argument expressions
-		println!(
-			"Executing LLVM function '{}' with {} parameters",
-			call.name,
-			function.parameters.len()
-		);
-
-		// Simple demo: return the number of parameters as the result
-		Ok(function.parameters.len() as f64)
+		// Get JIT function pointer and execute based on argument count
+		unsafe {
+			match arg_values.len() {
+				0 => {
+					type Func0 = unsafe extern "C" fn() -> f64;
+					let jit_fn: inkwell::execution_engine::JitFunction<Func0> =
+						codegen.execution_engine.get_function(&call.name)?;
+					Ok(jit_fn.call())
+				}
+				1 => {
+					type Func1 = unsafe extern "C" fn(f64) -> f64;
+					let jit_fn: inkwell::execution_engine::JitFunction<Func1> =
+						codegen.execution_engine.get_function(&call.name)?;
+					Ok(jit_fn.call(arg_values[0]))
+				}
+				2 => {
+					type Func2 = unsafe extern "C" fn(f64, f64) -> f64;
+					let jit_fn: inkwell::execution_engine::JitFunction<Func2> =
+						codegen.execution_engine.get_function(&call.name)?;
+					Ok(jit_fn.call(arg_values[0], arg_values[1]))
+				}
+				3 => {
+					type Func3 = unsafe extern "C" fn(f64, f64, f64) -> f64;
+					let jit_fn: inkwell::execution_engine::JitFunction<Func3> =
+						codegen.execution_engine.get_function(&call.name)?;
+					Ok(jit_fn.call(arg_values[0], arg_values[1], arg_values[2]))
+				}
+				4 => {
+					type Func4 = unsafe extern "C" fn(f64, f64, f64, f64) -> f64;
+					let jit_fn: inkwell::execution_engine::JitFunction<Func4> =
+						codegen.execution_engine.get_function(&call.name)?;
+					Ok(jit_fn.call(arg_values[0], arg_values[1], arg_values[2], arg_values[3]))
+				}
+				5 => {
+					type Func5 = unsafe extern "C" fn(f64, f64, f64, f64, f64) -> f64;
+					let jit_fn: inkwell::execution_engine::JitFunction<Func5> =
+						codegen.execution_engine.get_function(&call.name)?;
+					Ok(jit_fn.call(
+						arg_values[0],
+						arg_values[1],
+						arg_values[2],
+						arg_values[3],
+						arg_values[4],
+					))
+				}
+				_ => Err(format!(
+					"Functions with {} parameters not supported yet (max 5)",
+					arg_values.len()
+				)
+				.into()),
+			}
+		}
 	} else {
 		Err(format!("Function '{}' not found", call.name).into())
 	}

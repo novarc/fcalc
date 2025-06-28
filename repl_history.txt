@@ -55,3 +55,12 @@ sum(5,7)
 sum = (a, b) => { a + b }
 sum(5,7)
 x = 10 ; y = 20 ; z = x + y ; z * 7
+sum = (a, b) => { a + b }
+sum(3, 4)
+square = (x) => { x * x }
+square(5)
+constant = () => { 42 }
+constant()
+complex = (x, y) => { x * 2 + y / 2 - 1 }
+complex(5, 10)
+exit
