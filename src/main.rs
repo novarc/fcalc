@@ -43,7 +43,7 @@ struct LLVMCodeGen<'ctx> {
 impl<'ctx> LLVMCodeGen<'ctx> {
 	fn new(context: &'ctx Context) -> Result<Self, Box<dyn Error>> {
 		let module = context.create_module("fcalc");
-		let execution_engine = module.create_jit_execution_engine(OptimizationLevel::None)?;
+		let execution_engine = module.create_jit_execution_engine(OptimizationLevel::Aggressive)?;
 		let builder = context.create_builder();
 		let float_type = context.f64_type();
 
@@ -68,7 +68,7 @@ impl<'ctx> LLVMCodeGen<'ctx> {
 		let float_type = context.f64_type();
 
 		// Create a dummy execution engine for compatibility, but we won't use it
-		let execution_engine = module.create_jit_execution_engine(OptimizationLevel::None)?;
+		let execution_engine = module.create_jit_execution_engine(OptimizationLevel::Aggressive)?;
 
 		Ok(LLVMCodeGen {
 			context,
@@ -95,7 +95,7 @@ impl<'ctx> LLVMCodeGen<'ctx> {
 				&target_triple,
 				&TargetMachine::get_host_cpu_name().to_string(),
 				&TargetMachine::get_host_cpu_features().to_string(),
-				inkwell::OptimizationLevel::Default,
+				inkwell::OptimizationLevel::Aggressive,
 				RelocMode::Default,
 				CodeModel::Default,
 			)
