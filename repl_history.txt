@@ -1,34 +1,4 @@
 #V2
-2 + 3
-(a) => { a * 2 }
-() => { 42 }
-(x, y) => { x + y }
-2 + 3
-(2 + 3) * 4
-(x, y) => { x + y }
-() => { 42 }
-(a) => { a * 2 }
-x = 10 ; y = 20 ; z = x + y ; z * 7
-q
-(x) => {{ x + 1 }}
-func_1_0(5)
-func_1_0(1)
-func_1_0()
-func_1_0(3)
-sum = (a, b) => {{ a + b }}
-sum(1,2)
-sum(2,5)
-sum = (a, b) => { a + b }
-sum(5,7)
-sum = (a, b) => { a + b }
-sum(5,7)
-x = 10 ; y = 20 ; z = x + y ; z * 7
-sum = (a, b) => { a + b }
-sum(3, 4)
-square = (x) => { x * x }
-square(5)
-constant = () => { 42 }
-constant()
 complex = (x, y) => { x * 2 + y / 2 - 1 }
 complex(5, 10)
 exit
@@ -99,3 +69,33 @@ foo(3,4)
 z = foo(3,4)
 z
 foo = (a,b) => {a + b}
+fn cube(x) { x * x * x }
+cube(-2)
+-2 * -2 * -2
+fn cube(x) { x * x * x }
+cube(-2)
+(-2) * (-2) * (-2)
+-2
+-2 + 3
+fn add(a, b) { a + b }
+fn multiply(x, y) { x * y }
+fn square(n) { n * n }
+multiply(3, 4)
+square(2)
+add(12, 4)
+fn add(a, b) { a + b }
+fn multiply(x, y) { x * y }
+fn square(n) { n * n }
+add(multiply(3, 4), square(2))
+fn add(a, b) { a + b }
+fn multiply(x, y) { x * y }
+fn square(n) { n * n }
+add(multiply(3, 4), square(2))
+fn add(a, b) { a + b }
+add(3, 4)
+fn add(a, b) { a + b }
+fn multiply(x, y) { x * y }
+add(multiply(3, 4), 4)
+fn add(a, b) { a + b }
+fn square(n) { n * n }
+add(4, square(2))

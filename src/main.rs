@@ -135,6 +135,14 @@ impl<'ctx> LLVMCodeGen<'ctx> {
 		for item in &block.items {
 			match item {
 				parse::LangBlockItem::Line(line) => {
+					// Check if the line contains function calls to other user-defined functions
+					if self.contains_user_function_calls(line) {
+						// Fall back to runtime evaluation for lines with function calls
+						return Err(
+							"Function contains calls to other functions - use runtime evaluation"
+								.into(),
+						);
+					}
 					last_result = self.compile_line(line, variables)?;
 				}
 				parse::LangBlockItem::Block(nested_block) => {
@@ -149,12 +157,47 @@ impl<'ctx> LLVMCodeGen<'ctx> {
 					return Err("Nested named functions not supported".into());
 				}
 				parse::LangBlockItem::FunctionCall(call) => {
+					// Check if this is a call to a user-defined function
+					if self.is_user_defined_function(&call.name) {
+						return Err(
+							"Function contains calls to other functions - use runtime evaluation"
+								.into(),
+						);
+					}
 					last_result = self.compile_function_call(call, variables)?;
 				}
 			}
 		}
 
 		Ok(last_result)
+	}
+
+	/// Check if a line contains calls to user-defined functions
+	fn contains_user_function_calls(&self, line: &parse::LangLine) -> bool {
+		// Look for function call patterns in the tokens
+		let mut i = 0;
+		while i + 1 < line.tokens.len() {
+			if let (Token::Symbol(name), Token::Operator(op)) =
+				(&line.tokens[i], &line.tokens[i + 1])
+			{
+				if op.value == "(" && self.is_user_defined_function(&name.value) {
+					return true;
+				}
+			}
+			i += 1;
+		}
+		false
+	}
+
+	/// Check if a function name refers to a user-defined function
+	fn is_user_defined_function(&self, name: &str) -> bool {
+		match FUNCTIONS.lock() {
+			Ok(functions) => functions.contains_key(name),
+			Err(poisoned) => {
+				let functions = poisoned.into_inner();
+				functions.contains_key(name)
+			}
+		}
 	}
 
 	/// Compile a line (expression) to LLVM IR
@@ -191,8 +234,16 @@ impl<'ctx> LLVMCodeGen<'ctx> {
 					if let Some(&value) = variables.get(&symbol.value) {
 						value_stack.push(value);
 					} else {
-						// Use global variable or default to 0
-						let value = self.float_type.const_float(0.0);
+						// Try to get global variable value
+						let global_value = match VARIABLES.lock() {
+							Ok(vars) => vars.get(&symbol.value).copied(),
+							Err(poisoned) => {
+								let vars = poisoned.into_inner();
+								vars.get(&symbol.value).copied()
+							}
+						};
+
+						let value = self.float_type.const_float(global_value.unwrap_or(0.0));
 						value_stack.push(value);
 					}
 				}
@@ -225,8 +276,58 @@ impl<'ctx> LLVMCodeGen<'ctx> {
 						if value_stack.len() >= 2 {
 							let b = value_stack.pop().unwrap();
 							let a = value_stack.pop().unwrap();
+
+							// Check for division by zero by comparing to 0.0
+							let zero = self.float_type.const_float(0.0);
+							let is_zero = self
+								.builder
+								.build_float_compare(
+									inkwell::FloatPredicate::OEQ,
+									b,
+									zero,
+									"is_zero",
+								)
+								.unwrap();
+
+							// Create basic blocks for division and error cases
+							let function = self
+								.builder
+								.get_insert_block()
+								.unwrap()
+								.get_parent()
+								.unwrap();
+							let div_bb = self.context.append_basic_block(function, "div");
+							let error_bb = self.context.append_basic_block(function, "error");
+							let continue_bb = self.context.append_basic_block(function, "continue");
+
+							// Branch based on zero check
+							self.builder
+								.build_conditional_branch(is_zero, error_bb, div_bb)
+								.unwrap();
+
+							// Division block
+							self.builder.position_at_end(div_bb);
 							let result = self.builder.build_float_div(a, b, "div").unwrap();
-							value_stack.push(result);
+							self.builder
+								.build_unconditional_branch(continue_bb)
+								.unwrap();
+
+							// Error block - return NaN to indicate error
+							self.builder.position_at_end(error_bb);
+							let nan = self.float_type.const_float(f64::NAN);
+							self.builder
+								.build_unconditional_branch(continue_bb)
+								.unwrap();
+
+							// Continue block - phi node to get the result
+							self.builder.position_at_end(continue_bb);
+							let phi = self
+								.builder
+								.build_phi(self.float_type, "div_result")
+								.unwrap();
+							phi.add_incoming(&[(&result, div_bb), (&nan, error_bb)]);
+
+							value_stack.push(phi.as_basic_value().into_float_value());
 						}
 					}
 					_ => {
@@ -275,16 +376,218 @@ impl<'ctx> LLVMCodeGen<'ctx> {
 	}
 }
 
+/// Check if a function contains calls to other user-defined functions
+fn function_contains_user_function_calls(function: &parse::LangFunction) -> bool {
+	contains_user_function_calls_in_block(&function.body)
+}
+
+/// Check if a block contains calls to user-defined functions
+fn contains_user_function_calls_in_block(block: &parse::LangBlock) -> bool {
+	for item in &block.items {
+		match item {
+			parse::LangBlockItem::Line(line) => {
+				if contains_user_function_calls_in_line(line) {
+					return true;
+				}
+			}
+			parse::LangBlockItem::Block(nested_block) => {
+				if contains_user_function_calls_in_block(nested_block) {
+					return true;
+				}
+			}
+			parse::LangBlockItem::FunctionCall(call) => {
+				if is_user_defined_function_global(&call.name) {
+					return true;
+				}
+			}
+			_ => {}
+		}
+	}
+	false
+}
+
+/// Check if a line contains calls to user-defined functions
+fn contains_user_function_calls_in_line(line: &parse::LangLine) -> bool {
+	let mut i = 0;
+	while i + 1 < line.tokens.len() {
+		if let (Token::Symbol(name), Token::Operator(op)) = (&line.tokens[i], &line.tokens[i + 1]) {
+			if op.value == "(" && is_user_defined_function_global(&name.value) {
+				return true;
+			}
+		}
+		i += 1;
+	}
+	false
+}
+
+/// Check if a function name refers to a user-defined function (global version)
+fn is_user_defined_function_global(name: &str) -> bool {
+	match FUNCTIONS.lock() {
+		Ok(functions) => functions.contains_key(name),
+		Err(poisoned) => {
+			let functions = poisoned.into_inner();
+			functions.contains_key(name)
+		}
+	}
+}
+
+/// Evaluate a function at runtime using the interpreter
+fn evaluate_function_at_runtime(
+	function: &parse::LangFunction,
+	arg_values: &[f64],
+) -> Result<f64, Box<dyn Error>> {
+	// Create a temporary variable map with the function parameters
+	let original_variables = {
+		match VARIABLES.lock() {
+			Ok(vars) => vars.clone(),
+			Err(poisoned) => poisoned.into_inner().clone(),
+		}
+	};
+
+	// Set up parameter bindings
+	{
+		match VARIABLES.lock() {
+			Ok(mut vars) => {
+				for (i, param_name) in function.parameters.iter().enumerate() {
+					if i < arg_values.len() {
+						vars.insert(param_name.clone(), arg_values[i]);
+					}
+				}
+			}
+			Err(poisoned) => {
+				let mut vars = poisoned.into_inner();
+				for (i, param_name) in function.parameters.iter().enumerate() {
+					if i < arg_values.len() {
+						vars.insert(param_name.clone(), arg_values[i]);
+					}
+				}
+			}
+		}
+	}
+
+	// Evaluate the function body with function call preprocessing
+	// We need to manually process each line to ensure function calls are handled
+	let result = eval_block_with_function_preprocessing(&function.body);
+
+	// Restore original variables
+	{
+		match VARIABLES.lock() {
+			Ok(mut vars) => *vars = original_variables,
+			Err(poisoned) => {
+				let mut vars = poisoned.into_inner();
+				*vars = original_variables;
+			}
+		}
+	}
+
+	match result {
+		Some(value) => Ok(value),
+		None => Err("Function evaluation returned no result".into()),
+	}
+}
+
+/// Evaluate a block with proper function call preprocessing
+fn eval_block_with_function_preprocessing(block: &parse::LangBlock) -> Option<f64> {
+	let mut last_result = None;
+	let mut has_function_definition = false;
+
+	for item in &block.items {
+		match item {
+			parse::LangBlockItem::Line(line) => {
+				let result = eval_line(line); // eval_line already does function call preprocessing
+				if result.is_some() {
+					last_result = result;
+				}
+			}
+			parse::LangBlockItem::Block(nested_block) => {
+				let result = eval_block_with_function_preprocessing(nested_block);
+				if result.is_some() {
+					last_result = result;
+				}
+			}
+			parse::LangBlockItem::Function(_) => {
+				has_function_definition = true;
+			}
+			parse::LangBlockItem::NamedFunction(_) => {
+				has_function_definition = true;
+			}
+			parse::LangBlockItem::FunctionCall(call) => match execute_function_call(call) {
+				Ok(value) => {
+					last_result = Some(value);
+				}
+				Err(e) => {
+					println!("Error executing function call: {}", e);
+					return None;
+				}
+			},
+		}
+	}
+
+	// If there's a function definition in the block, return None
+	if has_function_definition {
+		None
+	} else {
+		last_result
+	}
+}
+
 /// Compile and store a named function using LLVM
 fn compile_and_store_named_function(
 	named_function: &parse::LangNamedFunction,
 ) -> Result<(), Box<dyn Error>> {
-	// Create a new LLVM context for this compilation
+	// Convert to LangFunction for storage
+	let function = parse::LangFunction {
+		parameters: named_function.parameters.clone(),
+		body: named_function.body.clone(),
+	};
+
+	// Check if this function contains calls to other functions
+	if function_contains_user_function_calls(&function) {
+		// Store the function for runtime evaluation, skip LLVM compilation
+		match FUNCTIONS.lock() {
+			Ok(mut functions) => {
+				functions.insert(named_function.name.clone(), function);
+			}
+			Err(poisoned) => {
+				let mut functions = poisoned.into_inner();
+				functions.insert(named_function.name.clone(), function);
+			}
+		}
+		return Ok(());
+	}
+
+	// Try LLVM compilation for simple functions
 	let context = Context::create();
 	let mut codegen = LLVMCodeGen::new(&context)?;
 
-	// Compile the named function
-	let _llvm_function = codegen.compile_named_function(named_function)?;
+	// Try to compile the named function
+	match codegen.compile_named_function(named_function) {
+		Ok(_) => {
+			// Successfully compiled with LLVM, store the function
+			match FUNCTIONS.lock() {
+				Ok(mut functions) => {
+					functions.insert(named_function.name.clone(), function);
+				}
+				Err(poisoned) => {
+					let mut functions = poisoned.into_inner();
+					functions.insert(named_function.name.clone(), function);
+				}
+			}
+		}
+		Err(e) if e.to_string().contains("use runtime evaluation") => {
+			// Failed due to function calls, store for runtime evaluation
+			match FUNCTIONS.lock() {
+				Ok(mut functions) => {
+					functions.insert(named_function.name.clone(), function);
+				}
+				Err(poisoned) => {
+					let mut functions = poisoned.into_inner();
+					functions.insert(named_function.name.clone(), function);
+				}
+			}
+		}
+		Err(e) => return Err(e),
+	}
 
 	// println!(
 	// 	"Successfully compiled named function '{}' with LLVM",
@@ -308,7 +611,8 @@ fn execute_function_call(call: &parse::LangFunctionCall) -> Result<f64, Box<dyn 
 		// Evaluate argument expressions to get actual values
 		let mut arg_values = Vec::new();
 		for arg_tokens in &call.arguments {
-			let postfix = infix_to_postfix(arg_tokens);
+			let unary_processed = preprocess_unary_minus(arg_tokens);
+			let postfix = infix_to_postfix(&unary_processed);
 			match execute_postfix_tokens(&postfix)? {
 				Some(value) => arg_values.push(value),
 				None => return Err("Argument expression evaluation failed".into()),
@@ -326,12 +630,25 @@ fn execute_function_call(call: &parse::LangFunctionCall) -> Result<f64, Box<dyn 
 			.into());
 		}
 
+		// Check if this function contains calls to other functions
+		if function_contains_user_function_calls(&function) {
+			// Use runtime evaluation instead of LLVM compilation
+			return evaluate_function_at_runtime(&function, &arg_values);
+		}
+
 		// Create a new LLVM context and compile the function for execution
 		let context = Context::create();
 		let mut codegen = LLVMCodeGen::new(&context)?;
 
-		// Compile the function
-		let _llvm_function = codegen.compile_function(&call.name, &function)?;
+		// Try to compile the function - if it fails due to function calls, fall back to runtime
+		let _llvm_function = match codegen.compile_function(&call.name, &function) {
+			Ok(f) => f,
+			Err(e) if e.to_string().contains("use runtime evaluation") => {
+				// Fall back to runtime evaluation
+				return evaluate_function_at_runtime(&function, &arg_values);
+			}
+			Err(e) => return Err(e),
+		};
 
 		// Get JIT function pointer and execute based on argument count
 		unsafe {
@@ -340,43 +657,74 @@ fn execute_function_call(call: &parse::LangFunctionCall) -> Result<f64, Box<dyn 
 					type Func0 = unsafe extern "C" fn() -> f64;
 					let jit_fn: inkwell::execution_engine::JitFunction<Func0> =
 						codegen.execution_engine.get_function(&call.name)?;
-					Ok(jit_fn.call())
+					let result = jit_fn.call();
+					if result.is_nan() {
+						Err("Division by zero".into())
+					} else {
+						Ok(result)
+					}
 				}
 				1 => {
 					type Func1 = unsafe extern "C" fn(f64) -> f64;
 					let jit_fn: inkwell::execution_engine::JitFunction<Func1> =
 						codegen.execution_engine.get_function(&call.name)?;
-					Ok(jit_fn.call(arg_values[0]))
+					let result = jit_fn.call(arg_values[0]);
+					if result.is_nan() {
+						Err("Division by zero".into())
+					} else {
+						Ok(result)
+					}
 				}
 				2 => {
 					type Func2 = unsafe extern "C" fn(f64, f64) -> f64;
 					let jit_fn: inkwell::execution_engine::JitFunction<Func2> =
 						codegen.execution_engine.get_function(&call.name)?;
-					Ok(jit_fn.call(arg_values[0], arg_values[1]))
+					let result = jit_fn.call(arg_values[0], arg_values[1]);
+					if result.is_nan() {
+						Err("Division by zero".into())
+					} else {
+						Ok(result)
+					}
 				}
 				3 => {
 					type Func3 = unsafe extern "C" fn(f64, f64, f64) -> f64;
 					let jit_fn: inkwell::execution_engine::JitFunction<Func3> =
 						codegen.execution_engine.get_function(&call.name)?;
-					Ok(jit_fn.call(arg_values[0], arg_values[1], arg_values[2]))
+					let result = jit_fn.call(arg_values[0], arg_values[1], arg_values[2]);
+					if result.is_nan() {
+						Err("Division by zero".into())
+					} else {
+						Ok(result)
+					}
 				}
 				4 => {
 					type Func4 = unsafe extern "C" fn(f64, f64, f64, f64) -> f64;
 					let jit_fn: inkwell::execution_engine::JitFunction<Func4> =
 						codegen.execution_engine.get_function(&call.name)?;
-					Ok(jit_fn.call(arg_values[0], arg_values[1], arg_values[2], arg_values[3]))
+					let result =
+						jit_fn.call(arg_values[0], arg_values[1], arg_values[2], arg_values[3]);
+					if result.is_nan() {
+						Err("Division by zero".into())
+					} else {
+						Ok(result)
+					}
 				}
 				5 => {
 					type Func5 = unsafe extern "C" fn(f64, f64, f64, f64, f64) -> f64;
 					let jit_fn: inkwell::execution_engine::JitFunction<Func5> =
 						codegen.execution_engine.get_function(&call.name)?;
-					Ok(jit_fn.call(
+					let result = jit_fn.call(
 						arg_values[0],
 						arg_values[1],
 						arg_values[2],
 						arg_values[3],
 						arg_values[4],
-					))
+					);
+					if result.is_nan() {
+						Err("Division by zero".into())
+					} else {
+						Ok(result)
+					}
 				}
 				_ => Err(format!(
 					"Functions with {} parameters not supported yet (max 5)",
@@ -437,10 +785,25 @@ fn preprocess_tokens_for_function_calls(tokens: &[Token]) -> Result<Vec<Token>, 
 						j += 1;
 					}
 
+					// Recursively preprocess arguments for nested function calls
+					let mut processed_arg_tokens = Vec::new();
+					for arg in arg_tokens {
+						match preprocess_tokens_for_function_calls(&arg) {
+							Ok(processed_arg) => processed_arg_tokens.push(processed_arg),
+							Err(e) => {
+								return Err(format!(
+									"Error preprocessing nested function call: {}",
+									e
+								)
+								.into());
+							}
+						}
+					}
+
 					// Execute the function call and replace with the result
 					let function_call = parse::LangFunctionCall {
 						name: func_name.value.clone(),
-						arguments: arg_tokens,
+						arguments: processed_arg_tokens,
 					};
 
 					match execute_function_call(&function_call) {
@@ -598,6 +961,11 @@ fn execute_postfix_tokens(tokens: &[Token]) -> Result<Option<f64>, Box<dyn Error
 						}
 					}
 				}
+				"," => {
+					// Commas should be handled in function call preprocessing,
+					// but if they reach here, just ignore them
+					continue;
+				}
 				_ => {
 					println!("Warning: Operator '{}' not supported yet", op.value);
 				}
@@ -624,6 +992,54 @@ fn execute_postfix_tokens(tokens: &[Token]) -> Result<Option<f64>, Box<dyn Error
 	}
 }
 
+/// Preprocess tokens to handle unary minus by converting patterns like "- number" to "0 - number"
+fn preprocess_unary_minus(tokens: &[Token]) -> Vec<Token> {
+	let mut result = Vec::new();
+	let mut i = 0;
+
+	while i < tokens.len() {
+		if let Token::Operator(op) = &tokens[i] {
+			if op.value == "-" {
+				// Check if this is a unary minus
+				let is_unary = if i == 0 {
+					// Minus at the beginning is unary
+					true
+				} else {
+					// Check if previous token indicates this should be unary
+					match &tokens[i - 1] {
+						Token::Operator(prev_op) if prev_op.value == "(" => true,
+						Token::Operator(prev_op) if prev_op.value == "," => true,
+						Token::Operator(prev_op) if prev_op.value == "=" => true,
+						Token::Operator(prev_op) if prev_op.value == "+" => true,
+						Token::Operator(prev_op) if prev_op.value == "-" => true,
+						Token::Operator(prev_op) if prev_op.value == "*" => true,
+						Token::Operator(prev_op) if prev_op.value == "/" => true,
+						_ => false,
+					}
+				};
+
+				if is_unary {
+					// Convert unary minus to "0 - number"
+					result.push(Token::Number(lex::LangNumber::Integer(lex::LangInteger {
+						value: 0,
+					})));
+					result.push(tokens[i].clone()); // The minus operator
+				} else {
+					// Regular binary minus
+					result.push(tokens[i].clone());
+				}
+			} else {
+				result.push(tokens[i].clone());
+			}
+		} else {
+			result.push(tokens[i].clone());
+		}
+		i += 1;
+	}
+
+	result
+}
+
 fn eval_line(line: &LangLine) -> Option<f64> {
 	// println!("Evaluating line:");
 
@@ -636,12 +1052,15 @@ fn eval_line(line: &LangLine) -> Option<f64> {
 		}
 	};
 
+	// Preprocess tokens to handle unary minus
+	let unary_processed_tokens = preprocess_unary_minus(&processed_tokens);
+
 	// Debug output
 	// println!("Original tokens: {:?}", line.tokens);
 	// println!("Processed tokens: {:?}", processed_tokens);
 
 	// Convert infix to postfix using Shunting Yard algorithm
-	let postfix_tokens = infix_to_postfix(&processed_tokens);
+	let postfix_tokens = infix_to_postfix(&unary_processed_tokens);
 
 	// println!("Original tokens: {:?}", line.tokens);
 	// println!("Postfix tokens: {:?}", postfix_tokens);
@@ -744,6 +1163,7 @@ fn eval_block(block: &LangBlock) -> Option<f64> {
 	// println!("Evaluating block:");
 
 	let mut last_result = None;
+	let mut has_function_definitions = false;
 
 	for item in &block.items {
 		match item {
@@ -788,9 +1208,10 @@ fn eval_block(block: &LangBlock) -> Option<f64> {
 					body: function.body.clone(),
 				};
 
-				// Compile the function with LLVM
+				// Try to compile the function with LLVM, but store it regardless
 				match compile_and_store_named_function(&named_function) {
 					Ok(_) => {
+						// Function was successfully compiled and stored
 						match FUNCTIONS.lock() {
 							Ok(mut functions) => {
 								functions.insert(func_name.clone(), function.clone());
@@ -807,9 +1228,21 @@ fn eval_block(block: &LangBlock) -> Option<f64> {
 						// );
 					}
 					Err(e) => {
-						println!("Error compiling function: {}", e);
+						// Compilation failed, but still store function for runtime evaluation
+						match FUNCTIONS.lock() {
+							Ok(mut functions) => {
+								functions.insert(func_name.clone(), function.clone());
+							}
+							Err(poisoned) => {
+								let mut functions = poisoned.into_inner();
+								functions.insert(func_name.clone(), function.clone());
+							}
+						}
+						// println!("Error compiling function: {}", e);
+						// println!("Function stored for runtime evaluation");
 					}
 				}
+				has_function_definitions = true;
 				last_result = None;
 			}
 			parse::LangBlockItem::NamedFunction(named_function) => {
@@ -821,9 +1254,19 @@ fn eval_block(block: &LangBlock) -> Option<f64> {
 					body: named_function.body.clone(),
 				};
 
-				// Compile the function with LLVM
+				// Try to compile the function with LLVM, but store it regardless
 				match compile_and_store_named_function(named_function) {
 					Ok(_) => {
+						// Function was successfully compiled and stored
+						// Note: compile_and_store_named_function already stored it
+						// println!(
+						// 	"Function defined: {} ({}) => {{ ... }}",
+						// 	named_function.name,
+						// 	named_function.parameters.join(", ")
+						// );
+					}
+					Err(e) => {
+						// Compilation failed, but still store function for runtime evaluation
 						match FUNCTIONS.lock() {
 							Ok(mut functions) => {
 								functions.insert(named_function.name.clone(), function);
@@ -833,16 +1276,11 @@ fn eval_block(block: &LangBlock) -> Option<f64> {
 								functions.insert(named_function.name.clone(), function);
 							}
 						}
-						// println!(
-						// 	"Function defined: {} ({}) => {{ ... }}",
-						// 	named_function.name,
-						// 	named_function.parameters.join(", ")
-						// );
-					}
-					Err(e) => {
-						println!("Error compiling function: {}", e);
+						// println!("Error compiling function: {}", e);
+						// println!("Function stored for runtime evaluation");
 					}
 				}
+				has_function_definitions = true;
 				last_result = None;
 			}
 			parse::LangBlockItem::FunctionCall(call) => {
@@ -861,7 +1299,12 @@ fn eval_block(block: &LangBlock) -> Option<f64> {
 		}
 	}
 
-	last_result
+	// If there were function definitions in this block, return None
+	if has_function_definitions {
+		None
+	} else {
+		last_result
+	}
 }
 
 fn run(line: &str) -> Option<f64> {
