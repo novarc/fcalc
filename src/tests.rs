@@ -1335,3 +1335,699 @@ fn test_function_return_values_in_expressions() {
 	assert_eq!(get_variable("x"), Some(9.0));
 	assert_eq!(get_variable("y"), Some(4.5));
 }
+
+#[test]
+fn test_compile_simple_function() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	// Define a simple function
+	run("fn square(x) { x * x }");
+	assert!(function_exists("square"));
+
+	// Test compilation to executable
+	let temp_dir = std::env::temp_dir();
+	let executable_path = temp_dir.join("test_square");
+	let executable_str = executable_path.to_str().unwrap();
+
+	// Create executable from function
+	match crate::create_executable_from_function("square", executable_str, &[5.0]) {
+		Ok(_) => {
+			// Run the executable and capture output
+			let output = std::process::Command::new(&executable_path)
+				.output()
+				.expect("Failed to execute compiled binary");
+
+			assert!(
+				output.status.success(),
+				"Executable should run successfully"
+			);
+
+			let stdout = String::from_utf8_lossy(&output.stdout);
+			let result: f64 = stdout.trim().parse().expect("Should parse as float");
+			assert_eq!(result, 25.0); // 5 * 5 = 25
+
+			// Clean up
+			let _ = std::fs::remove_file(&executable_path);
+		}
+		Err(e) => panic!("Failed to create executable: {}", e),
+	}
+}
+
+#[test]
+fn test_compile_function_with_multiple_parameters() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	// Define a function with multiple parameters
+	run("fn multiply_add(a, b, c) { a * b + c }");
+	assert!(function_exists("multiply_add"));
+
+	let temp_dir = std::env::temp_dir();
+	let executable_path = temp_dir.join("test_multiply_add");
+	let executable_str = executable_path.to_str().unwrap();
+
+	// Create executable: multiply_add(3, 4, 2) = 3 * 4 + 2 = 14
+	match crate::create_executable_from_function("multiply_add", executable_str, &[3.0, 4.0, 2.0]) {
+		Ok(_) => {
+			let output = std::process::Command::new(&executable_path)
+				.output()
+				.expect("Failed to execute compiled binary");
+
+			assert!(output.status.success());
+
+			let stdout = String::from_utf8_lossy(&output.stdout);
+			let result: f64 = stdout.trim().parse().expect("Should parse as float");
+			assert_eq!(result, 14.0); // 3 * 4 + 2 = 14
+
+			let _ = std::fs::remove_file(&executable_path);
+		}
+		Err(e) => panic!("Failed to create executable: {}", e),
+	}
+}
+
+#[test]
+fn test_compile_function_with_no_parameters() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	// Define a function with no parameters
+	run("fn get_pi() { 3.14159 }");
+	assert!(function_exists("get_pi"));
+
+	let temp_dir = std::env::temp_dir();
+	let executable_path = temp_dir.join("test_get_pi");
+	let executable_str = executable_path.to_str().unwrap();
+
+	match crate::create_executable_from_function("get_pi", executable_str, &[]) {
+		Ok(_) => {
+			let output = std::process::Command::new(&executable_path)
+				.output()
+				.expect("Failed to execute compiled binary");
+
+			assert!(output.status.success());
+
+			let stdout = String::from_utf8_lossy(&output.stdout);
+			let result: f64 = stdout.trim().parse().expect("Should parse as float");
+			assert_eq!(result, 3.14159);
+
+			let _ = std::fs::remove_file(&executable_path);
+		}
+		Err(e) => panic!("Failed to create executable: {}", e),
+	}
+}
+
+#[test]
+fn test_compile_function_with_complex_expression() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	// Define a function with complex arithmetic
+	run("fn quadratic(a, b, c, x) { a * x * x + b * x + c }");
+	assert!(function_exists("quadratic"));
+
+	let temp_dir = std::env::temp_dir();
+	let executable_path = temp_dir.join("test_quadratic");
+	let executable_str = executable_path.to_str().unwrap();
+
+	// Test quadratic: 2x^2 + 3x + 1 where x = 4
+	// 2 * 16 + 3 * 4 + 1 = 32 + 12 + 1 = 45
+	match crate::create_executable_from_function("quadratic", executable_str, &[2.0, 3.0, 1.0, 4.0])
+	{
+		Ok(_) => {
+			let output = std::process::Command::new(&executable_path)
+				.output()
+				.expect("Failed to execute compiled binary");
+
+			assert!(output.status.success());
+
+			let stdout = String::from_utf8_lossy(&output.stdout);
+			let result: f64 = stdout.trim().parse().expect("Should parse as float");
+			assert_eq!(result, 45.0);
+
+			let _ = std::fs::remove_file(&executable_path);
+		}
+		Err(e) => panic!("Failed to create executable: {}", e),
+	}
+}
+
+#[test]
+fn test_compile_function_with_division() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	// Define a function that tests division
+	run("fn average(a, b) { (a + b) / 2 }");
+	assert!(function_exists("average"));
+
+	let temp_dir = std::env::temp_dir();
+	let executable_path = temp_dir.join("test_average");
+	let executable_str = executable_path.to_str().unwrap();
+
+	match crate::create_executable_from_function("average", executable_str, &[10.0, 20.0]) {
+		Ok(_) => {
+			let output = std::process::Command::new(&executable_path)
+				.output()
+				.expect("Failed to execute compiled binary");
+
+			assert!(output.status.success());
+
+			let stdout = String::from_utf8_lossy(&output.stdout);
+			let result: f64 = stdout.trim().parse().expect("Should parse as float");
+			assert_eq!(result, 15.0); // (10 + 20) / 2 = 15
+
+			let _ = std::fs::remove_file(&executable_path);
+		}
+		Err(e) => panic!("Failed to create executable: {}", e),
+	}
+}
+
+#[test]
+fn test_compile_function_with_floating_point_args() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	run("fn circle_area(radius) { 3.14159 * radius * radius }");
+	assert!(function_exists("circle_area"));
+
+	let temp_dir = std::env::temp_dir();
+	let executable_path = temp_dir.join("test_circle_area");
+	let executable_str = executable_path.to_str().unwrap();
+
+	match crate::create_executable_from_function("circle_area", executable_str, &[2.5]) {
+		Ok(_) => {
+			let output = std::process::Command::new(&executable_path)
+				.output()
+				.expect("Failed to execute compiled binary");
+
+			assert!(output.status.success());
+
+			let stdout = String::from_utf8_lossy(&output.stdout);
+			let result: f64 = stdout.trim().parse().expect("Should parse as float");
+			let expected = 3.14159 * 2.5 * 2.5;
+			assert!((result - expected).abs() < 1e-10);
+
+			let _ = std::fs::remove_file(&executable_path);
+		}
+		Err(e) => panic!("Failed to create executable: {}", e),
+	}
+}
+
+#[test]
+fn test_compile_nonexistent_function() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	let temp_dir = std::env::temp_dir();
+	let executable_path = temp_dir.join("test_nonexistent");
+	let executable_str = executable_path.to_str().unwrap();
+
+	// Try to compile a function that doesn't exist
+	match crate::create_executable_from_function("nonexistent", executable_str, &[1.0]) {
+		Ok(_) => panic!("Should fail when function doesn't exist"),
+		Err(e) => {
+			assert!(e.to_string().contains("not found"));
+		}
+	}
+}
+
+#[test]
+fn test_compile_expr_simple_arithmetic() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	let temp_dir = std::env::temp_dir();
+	let executable_path = temp_dir.join("test_expr_simple");
+	let executable_str = executable_path.to_str().unwrap();
+
+	// Test simple arithmetic expression
+	match crate::create_executable_from_expression("2 + 3 * 4", executable_str) {
+		Ok(_) => {
+			let output = std::process::Command::new(&executable_path)
+				.output()
+				.expect("Failed to execute compiled binary");
+
+			assert!(output.status.success());
+
+			let stdout = String::from_utf8_lossy(&output.stdout);
+			let result: f64 = stdout.trim().parse().expect("Should parse as float");
+			assert_eq!(result, 14.0); // 2 + (3 * 4) = 14
+
+			let _ = std::fs::remove_file(&executable_path);
+		}
+		Err(e) => panic!("Failed to create executable: {}", e),
+	}
+}
+
+#[test]
+fn test_compile_expr_with_parentheses() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	let temp_dir = std::env::temp_dir();
+	let executable_path = temp_dir.join("test_expr_parens");
+	let executable_str = executable_path.to_str().unwrap();
+
+	match crate::create_executable_from_expression("(2 + 3) * 4", executable_str) {
+		Ok(_) => {
+			let output = std::process::Command::new(&executable_path)
+				.output()
+				.expect("Failed to execute compiled binary");
+
+			assert!(output.status.success());
+
+			let stdout = String::from_utf8_lossy(&output.stdout);
+			let result: f64 = stdout.trim().parse().expect("Should parse as float");
+			assert_eq!(result, 20.0); // (2 + 3) * 4 = 20
+
+			let _ = std::fs::remove_file(&executable_path);
+		}
+		Err(e) => panic!("Failed to create executable: {}", e),
+	}
+}
+
+#[test]
+fn test_compile_expr_floating_point() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	let temp_dir = std::env::temp_dir();
+	let executable_path = temp_dir.join("test_expr_float");
+	let executable_str = executable_path.to_str().unwrap();
+
+	match crate::create_executable_from_expression("3.14159 * 2.5", executable_str) {
+		Ok(_) => {
+			let output = std::process::Command::new(&executable_path)
+				.output()
+				.expect("Failed to execute compiled binary");
+
+			assert!(output.status.success());
+
+			let stdout = String::from_utf8_lossy(&output.stdout);
+			let result: f64 = stdout.trim().parse().expect("Should parse as float");
+			let expected = 3.14159 * 2.5;
+			assert!((result - expected).abs() < 1e-10);
+
+			let _ = std::fs::remove_file(&executable_path);
+		}
+		Err(e) => panic!("Failed to create executable: {}", e),
+	}
+}
+
+#[test]
+fn test_compile_expr_division() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	let temp_dir = std::env::temp_dir();
+	let executable_path = temp_dir.join("test_expr_division");
+	let executable_str = executable_path.to_str().unwrap();
+
+	match crate::create_executable_from_expression("15 / 3", executable_str) {
+		Ok(_) => {
+			let output = std::process::Command::new(&executable_path)
+				.output()
+				.expect("Failed to execute compiled binary");
+
+			assert!(output.status.success());
+
+			let stdout = String::from_utf8_lossy(&output.stdout);
+			let result: f64 = stdout.trim().parse().expect("Should parse as float");
+			assert_eq!(result, 5.0);
+
+			let _ = std::fs::remove_file(&executable_path);
+		}
+		Err(e) => panic!("Failed to create executable: {}", e),
+	}
+}
+
+#[test]
+fn test_compile_expr_complex_arithmetic() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	let temp_dir = std::env::temp_dir();
+	let executable_path = temp_dir.join("test_expr_complex");
+	let executable_str = executable_path.to_str().unwrap();
+
+	// Test: 2 * (3 + 4) - 1 = 2 * 7 - 1 = 14 - 1 = 13
+	match crate::create_executable_from_expression("2 * (3 + 4) - 1", executable_str) {
+		Ok(_) => {
+			let output = std::process::Command::new(&executable_path)
+				.output()
+				.expect("Failed to execute compiled binary");
+
+			assert!(output.status.success());
+
+			let stdout = String::from_utf8_lossy(&output.stdout);
+			let result: f64 = stdout.trim().parse().expect("Should parse as float");
+			assert_eq!(result, 13.0);
+
+			let _ = std::fs::remove_file(&executable_path);
+		}
+		Err(e) => panic!("Failed to create executable: {}", e),
+	}
+}
+
+#[test]
+fn test_compile_expr_single_number() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	let temp_dir = std::env::temp_dir();
+	let executable_path = temp_dir.join("test_expr_single");
+	let executable_str = executable_path.to_str().unwrap();
+
+	match crate::create_executable_from_expression("42", executable_str) {
+		Ok(_) => {
+			let output = std::process::Command::new(&executable_path)
+				.output()
+				.expect("Failed to execute compiled binary");
+
+			assert!(output.status.success());
+
+			let stdout = String::from_utf8_lossy(&output.stdout);
+			let result: f64 = stdout.trim().parse().expect("Should parse as float");
+			assert_eq!(result, 42.0);
+
+			let _ = std::fs::remove_file(&executable_path);
+		}
+		Err(e) => panic!("Failed to create executable: {}", e),
+	}
+}
+
+#[test]
+fn test_compile_expr_negative_numbers() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	let temp_dir = std::env::temp_dir();
+	let executable_path = temp_dir.join("test_expr_negative");
+	let executable_str = executable_path.to_str().unwrap();
+
+	match crate::create_executable_from_expression("5 - 8", executable_str) {
+		Ok(_) => {
+			let output = std::process::Command::new(&executable_path)
+				.output()
+				.expect("Failed to execute compiled binary");
+
+			assert!(output.status.success());
+
+			let stdout = String::from_utf8_lossy(&output.stdout);
+			let result: f64 = stdout.trim().parse().expect("Should parse as float");
+			assert_eq!(result, -3.0);
+
+			let _ = std::fs::remove_file(&executable_path);
+		}
+		Err(e) => panic!("Failed to create executable: {}", e),
+	}
+}
+
+#[test]
+fn test_compile_multiple_functions_same_session() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	// Define multiple functions
+	run("fn double(x) { x * 2 }");
+	run("fn triple(x) { x * 3 }");
+	run("fn add_one(x) { x + 1 }");
+
+	let temp_dir = std::env::temp_dir();
+
+	// Test compiling each function
+	let functions_and_args = vec![
+		("double", vec![5.0], 10.0),
+		("triple", vec![4.0], 12.0),
+		("add_one", vec![9.0], 10.0),
+	];
+
+	for (func_name, args, expected) in functions_and_args {
+		let executable_path = temp_dir.join(format!("test_{}", func_name));
+		let executable_str = executable_path.to_str().unwrap();
+
+		match crate::create_executable_from_function(func_name, executable_str, &args) {
+			Ok(_) => {
+				let output = std::process::Command::new(&executable_path)
+					.output()
+					.expect("Failed to execute compiled binary");
+
+				assert!(output.status.success());
+
+				let stdout = String::from_utf8_lossy(&output.stdout);
+				let result: f64 = stdout.trim().parse().expect("Should parse as float");
+				assert_eq!(result, expected);
+
+				let _ = std::fs::remove_file(&executable_path);
+			}
+			Err(e) => panic!("Failed to create executable for {}: {}", func_name, e),
+		}
+	}
+}
+
+#[test]
+fn test_compile_multiple_expressions_same_session() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	let temp_dir = std::env::temp_dir();
+
+	let expressions_and_results = vec![
+		("1 + 1", 2.0),
+		("10 / 2", 5.0),
+		("3 * 7", 21.0),
+		("100 - 25", 75.0),
+	];
+
+	for (i, (expr, expected)) in expressions_and_results.iter().enumerate() {
+		let executable_path = temp_dir.join(format!("test_expr_{}", i));
+		let executable_str = executable_path.to_str().unwrap();
+
+		match crate::create_executable_from_expression(expr, executable_str) {
+			Ok(_) => {
+				let output = std::process::Command::new(&executable_path)
+					.output()
+					.expect("Failed to execute compiled binary");
+
+				assert!(output.status.success());
+
+				let stdout = String::from_utf8_lossy(&output.stdout);
+				let result: f64 = stdout.trim().parse().expect("Should parse as float");
+				assert_eq!(result, *expected);
+
+				let _ = std::fs::remove_file(&executable_path);
+			}
+			Err(e) => panic!("Failed to create executable for '{}': {}", expr, e),
+		}
+	}
+}
+
+#[test]
+fn test_compile_function_with_precision() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	// Test function with result that needs precision
+	run("fn precise_calc(x) { x / 3 }");
+	assert!(function_exists("precise_calc"));
+
+	let temp_dir = std::env::temp_dir();
+	let executable_path = temp_dir.join("test_precise");
+	let executable_str = executable_path.to_str().unwrap();
+
+	match crate::create_executable_from_function("precise_calc", executable_str, &[1.0]) {
+		Ok(_) => {
+			let output = std::process::Command::new(&executable_path)
+				.output()
+				.expect("Failed to execute compiled binary");
+
+			assert!(output.status.success());
+
+			let stdout = String::from_utf8_lossy(&output.stdout);
+			let result: f64 = stdout.trim().parse().expect("Should parse as float");
+			let expected = 1.0 / 3.0;
+			assert!((result - expected).abs() < 1e-14); // High precision check
+
+			let _ = std::fs::remove_file(&executable_path);
+		}
+		Err(e) => panic!("Failed to create executable: {}", e),
+	}
+}
+
+#[test]
+fn test_compile_function_edge_case_zero() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	run("fn return_zero(x) { x * 0 }");
+	assert!(function_exists("return_zero"));
+
+	let temp_dir = std::env::temp_dir();
+	let executable_path = temp_dir.join("test_zero");
+	let executable_str = executable_path.to_str().unwrap();
+
+	match crate::create_executable_from_function("return_zero", executable_str, &[999.0]) {
+		Ok(_) => {
+			let output = std::process::Command::new(&executable_path)
+				.output()
+				.expect("Failed to execute compiled binary");
+
+			assert!(output.status.success());
+
+			let stdout = String::from_utf8_lossy(&output.stdout);
+			let result: f64 = stdout.trim().parse().expect("Should parse as float");
+			assert_eq!(result, 0.0);
+
+			let _ = std::fs::remove_file(&executable_path);
+		}
+		Err(e) => panic!("Failed to create executable: {}", e),
+	}
+}
+
+#[test]
+fn test_compile_expr_edge_case_zero() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	let temp_dir = std::env::temp_dir();
+	let executable_path = temp_dir.join("test_expr_zero");
+	let executable_str = executable_path.to_str().unwrap();
+
+	match crate::create_executable_from_expression("0", executable_str) {
+		Ok(_) => {
+			let output = std::process::Command::new(&executable_path)
+				.output()
+				.expect("Failed to execute compiled binary");
+
+			assert!(output.status.success());
+
+			let stdout = String::from_utf8_lossy(&output.stdout);
+			let result: f64 = stdout.trim().parse().expect("Should parse as float");
+			assert_eq!(result, 0.0);
+
+			let _ = std::fs::remove_file(&executable_path);
+		}
+		Err(e) => panic!("Failed to create executable: {}", e),
+	}
+}
+
+#[test]
+fn test_compile_function_large_numbers() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	run("fn identity(x) { x }");
+	assert!(function_exists("identity"));
+
+	let temp_dir = std::env::temp_dir();
+	let executable_path = temp_dir.join("test_large");
+	let executable_str = executable_path.to_str().unwrap();
+
+	let large_number = 1234567890.123456;
+	match crate::create_executable_from_function("identity", executable_str, &[large_number]) {
+		Ok(_) => {
+			let output = std::process::Command::new(&executable_path)
+				.output()
+				.expect("Failed to execute compiled binary");
+
+			assert!(output.status.success());
+
+			let stdout = String::from_utf8_lossy(&output.stdout);
+			let result: f64 = stdout.trim().parse().expect("Should parse as float");
+			assert!((result - large_number).abs() < 1e-4); // More lenient for large numbers
+
+			let _ = std::fs::remove_file(&executable_path);
+		}
+		Err(e) => panic!("Failed to create executable: {}", e),
+	}
+}
+
+#[test]
+fn test_compile_expr_large_calculation() {
+	let _guard = TEST_MUTEX
+		.lock()
+		.unwrap_or_else(|poisoned| poisoned.into_inner());
+	clear_variables();
+	clear_functions();
+
+	let temp_dir = std::env::temp_dir();
+	let executable_path = temp_dir.join("test_expr_large");
+	let executable_str = executable_path.to_str().unwrap();
+
+	match crate::create_executable_from_expression("1000000 * 1000000", executable_str) {
+		Ok(_) => {
+			let output = std::process::Command::new(&executable_path)
+				.output()
+				.expect("Failed to execute compiled binary");
+
+			assert!(output.status.success());
+
+			let stdout = String::from_utf8_lossy(&output.stdout);
+			let result: f64 = stdout.trim().parse().expect("Should parse as float");
+			assert_eq!(result, 1e12);
+
+			let _ = std::fs::remove_file(&executable_path);
+		}
+		Err(e) => panic!("Failed to create executable: {}", e),
+	}
+}
