@@ -749,6 +749,20 @@ fn eval_block(block: &LangBlock) -> Option<f64> {
 		match item {
 			parse::LangBlockItem::Line(line) => {
 				let result = eval_line(line);
+
+				// Print result for non-assignment expressions
+				if let Some(value) = result {
+					// Check if this line contains an assignment operator
+					let has_assignment = line
+						.tokens
+						.iter()
+						.any(|t| matches!(t, Token::Operator(op) if op.value == "="));
+
+					if !has_assignment {
+						println!("{}", value);
+					}
+				}
+
 				last_result = result;
 			}
 			parse::LangBlockItem::Block(nested_block) => {
