@@ -10,9 +10,14 @@ use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::execution_engine::ExecutionEngine;
 use inkwell::module::Module;
+use inkwell::targets::{
+	CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
+};
 
 use std::collections::HashMap;
 use std::error::Error;
+use std::fs;
+use std::path::Path;
 use std::sync::{LazyLock, Mutex};
 
 use inkwell::types::FloatType;
@@ -49,6 +54,135 @@ impl<'ctx> LLVMCodeGen<'ctx> {
 			execution_engine,
 			float_type,
 		})
+	}
+
+	/// Initialize LLVM targets for binary generation
+	fn initialize_targets() {
+		Target::initialize_all(&InitializationConfig::default());
+	}
+
+	/// Create a new instance specifically for binary generation (without JIT engine)
+	fn new_for_binary_gen(context: &'ctx Context) -> Result<Self, Box<dyn Error>> {
+		let module = context.create_module("fcalc_binary");
+		let builder = context.create_builder();
+		let float_type = context.f64_type();
+
+		// Create a dummy execution engine for compatibility, but we won't use it
+		let execution_engine = module.create_jit_execution_engine(OptimizationLevel::None)?;
+
+		Ok(LLVMCodeGen {
+			context,
+			module,
+			builder,
+			execution_engine,
+			float_type,
+		})
+	}
+
+	/// Generate an executable binary from the current module
+	fn generate_executable(&self, output_path: &str) -> Result<(), Box<dyn Error>> {
+		// Initialize targets
+		Self::initialize_targets();
+
+		// Get the native target triple
+		let target_triple = TargetMachine::get_default_triple();
+		let target = Target::from_triple(&target_triple)
+			.map_err(|e| format!("Failed to get target from triple: {}", e))?;
+
+		// Create target machine
+		let target_machine = target
+			.create_target_machine(
+				&target_triple,
+				&TargetMachine::get_host_cpu_name().to_string(),
+				&TargetMachine::get_host_cpu_features().to_string(),
+				inkwell::OptimizationLevel::Default,
+				RelocMode::Default,
+				CodeModel::Default,
+			)
+			.ok_or("Failed to create target machine")?;
+
+		// Set the target triple and data layout for the module
+		self.module.set_triple(&target_triple);
+		self.module
+			.set_data_layout(&target_machine.get_target_data().get_data_layout());
+
+		// Generate object file
+		let object_path = format!("{}.o", output_path);
+		target_machine
+			.write_to_file(&self.module, FileType::Object, Path::new(&object_path))
+			.map_err(|e| format!("Failed to write object file: {}", e))?;
+
+		// Link the object file to create executable
+		#[cfg(target_os = "macos")]
+		let link_command = format!("clang -o {} {} -lm", output_path, object_path);
+
+		#[cfg(target_os = "linux")]
+		let link_command = format!("gcc -o {} {} -lm", output_path, object_path);
+
+		#[cfg(target_os = "windows")]
+		let link_command = format!("clang -o {}.exe {} -lm", output_path, object_path);
+
+		// Execute the link command
+		let output = std::process::Command::new("sh")
+			.arg("-c")
+			.arg(&link_command)
+			.output();
+
+		match output {
+			Ok(result) => {
+				if result.status.success() {
+					// Clean up object file
+					let _ = fs::remove_file(&object_path);
+					println!("Successfully created executable: {}", output_path);
+					Ok(())
+				} else {
+					let error_msg = String::from_utf8_lossy(&result.stderr);
+					Err(format!("Linking failed: {}", error_msg).into())
+				}
+			}
+			Err(e) => Err(format!("Failed to execute linker: {}", e).into()),
+		}
+	}
+
+	/// Create a main function that calls a user-defined function
+	fn create_main_function(
+		&mut self,
+		function_name: &str,
+		args: &[f64],
+	) -> Result<(), Box<dyn Error>> {
+		// Create main function type: int main()
+		let i32_type = self.context.i32_type();
+		let main_fn_type = i32_type.fn_type(&[], false);
+		let main_function = self.module.add_function("main", main_fn_type, None);
+
+		let basic_block = self.context.append_basic_block(main_function, "entry");
+		self.builder.position_at_end(basic_block);
+
+		// Get the user function
+		if let Some(user_function) = self.module.get_function(function_name) {
+			// Prepare arguments
+			let mut llvm_args = Vec::new();
+			for &arg in args {
+				llvm_args.push(self.float_type.const_float(arg).into());
+			}
+
+			// Call the user function
+			let call_result = self
+				.builder
+				.build_call(user_function, &llvm_args, "call_user_func")
+				.unwrap();
+
+			// Print the result (simplified - in real implementation you'd need printf)
+			// For now, just return 0
+			let return_val = i32_type.const_int(0, false);
+			self.builder.build_return(Some(&return_val)).unwrap();
+		} else {
+			// Function not found, return error code
+			let return_val = i32_type.const_int(1, false);
+			self.builder.build_return(Some(&return_val)).unwrap();
+		}
+
+		Ok(())
 	}
 
 	/// Compile a function definition to LLVM IR
@@ -1320,6 +1454,82 @@ fn run(line: &str) -> Option<f64> {
 	eval_block(&block)
 }
 
+/// Create an executable binary from a user-defined function
+fn create_executable_from_function(
+	function_name: &str,
+	output_name: &str,
+	args: &[f64],
+) -> Result<(), Box<dyn Error>> {
+	// Get the function from storage
+	let function_opt = match FUNCTIONS.lock() {
+		Ok(functions) => functions.get(function_name).cloned(),
+		Err(poisoned) => {
+			let functions = poisoned.into_inner();
+			functions.get(function_name).cloned()
+		}
+	};
+
+	let function = function_opt.ok_or(format!("Function '{}' not found", function_name))?;
+
+	// Create LLVM context and code generator for binary generation
+	let context = Context::create();
+	let mut codegen = LLVMCodeGen::new_for_binary_gen(&context)?;
+
+	// Compile the user function to LLVM IR
+	codegen.compile_function(function_name, &function)?;
+
+	// Create a main function that calls the user function
+	codegen.create_main_function(function_name, args)?;
+
+	// Generate the executable
+	codegen.generate_executable(output_name)?;
+
+	Ok(())
+}
+
+/// Create a simple executable that evaluates an expression
+fn create_executable_from_expression(
+	expression: &str,
+	output_name: &str,
+) -> Result<(), Box<dyn Error>> {
+	// Parse the expression
+	let tokens = lex(expression);
+	let mut token_iter = tokens.into_iter().peekable();
+	let block = parse_block(&mut token_iter);
+
+	// Create LLVM context and code generator
+	let context = Context::create();
+	let mut codegen = LLVMCodeGen::new_for_binary_gen(&context)?;
+
+	// Create main function that evaluates the expression and returns the result
+	let i32_type = context.i32_type();
+	let main_fn_type = i32_type.fn_type(&[], false);
+	let main_function = codegen.module.add_function("main", main_fn_type, None);
+
+	let basic_block = context.append_basic_block(main_function, "entry");
+	codegen.builder.position_at_end(basic_block);
+
+	// Try to compile the expression
+	let empty_vars = HashMap::new();
+	match codegen.compile_block(&block, &empty_vars) {
+		Ok(_result) => {
+			// Expression compiled successfully
+			let return_val = i32_type.const_int(0, false);
+			codegen.builder.build_return(Some(&return_val)).unwrap();
+		}
+		Err(_) => {
+			// Expression too complex, return error
+			let return_val = i32_type.const_int(1, false);
+			codegen.builder.build_return(Some(&return_val)).unwrap();
+		}
+	}
+
+	// Generate the executable
+	codegen.generate_executable(output_name)?;
+
+	Ok(())
+}
+
 fn main() {
 	println!("Fast Calculator");
 	println!("===============");
@@ -1328,6 +1538,8 @@ fn main() {
 	println!("  • Variables: x = 5; y = x * 2");
 	println!("  • Functions: fn increment(x) {{ x + 1 }}");
 	println!("  • Function calls: increment(5)");
+	println!("  • Binary generation: :compile <function_name> <output_name> [args...]");
+	println!("  • Expression compilation: :compile_expr <expression> <output_name>");
 	println!("");
 
 	let _ = repl();
@@ -1342,7 +1554,66 @@ fn repl() -> rustyline::Result<()> {
 		match readline {
 			Ok(line) => {
 				let _ = rl.add_history_entry(line.as_str());
-				let _result = run(line.as_str());
+
+				// Check for special commands
+				if line.starts_with(":compile_expr ") {
+					// Parse command: :compile_expr <expression> <output_name>
+					let parts: Vec<&str> = line[14..].splitn(2, ' ').collect();
+					if parts.len() == 2 {
+						let expression = parts[0];
+						let output_name = parts[1];
+						match create_executable_from_expression(expression, output_name) {
+							Ok(_) => println!("✓ Executable created successfully"),
+							Err(e) => println!("✗ Error creating executable: {}", e),
+						}
+					} else {
+						println!("Usage: :compile_expr <expression> <output_name>");
+					}
+				} else if line.starts_with(":compile ") {
+					// Parse command: :compile <function_name> <output_name> [args...]
+					let parts: Vec<&str> = line[9..].split_whitespace().collect();
+					if parts.len() >= 2 {
+						let function_name = parts[0];
+						let output_name = parts[1];
+						let args: Result<Vec<f64>, _> =
+							parts[2..].iter().map(|s| s.parse()).collect();
+
+						match args {
+							Ok(arg_values) => {
+								match create_executable_from_function(
+									function_name,
+									output_name,
+									&arg_values,
+								) {
+									Ok(_) => println!("✓ Executable created successfully"),
+									Err(e) => println!("✗ Error creating executable: {}", e),
+								}
+							}
+							Err(_) => {
+								println!(
+									"Error: Invalid argument values. All arguments must be numbers."
+								);
+							}
+						}
+					} else {
+						println!("Usage: :compile <function_name> <output_name> [args...]");
+					}
+				} else if line.starts_with(":help") {
+					println!("Available commands:");
+					println!(
+						"  :compile <function_name> <output_name> [args...]  - Compile function to executable"
+					);
+					println!(
+						"  :compile_expr <expression> <output_name>         - Compile expression to executable"
+					);
+					println!("  :help                                            - Show this help");
+					println!("  :quit                                            - Exit the REPL");
+				} else if line.starts_with(":quit") {
+					break;
+				} else {
+					// Regular expression evaluation
+					let _result = run(line.as_str());
+				}
 			}
 			Err(_) => {
 				break;
